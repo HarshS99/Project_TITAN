@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TITAN Database
+*.db
+titan_memory.db
+
+# Logs
+logs/
+*.log
+
+# Projects built by TITAN (optional - remove if you want to commit them)
+projects/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Streamlit
+.streamlit/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

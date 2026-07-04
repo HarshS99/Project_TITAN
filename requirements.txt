@@ -1,0 +1,39 @@
+# ============================================================
+# Project TITAN — Requirements
+# ============================================================
+
+# CAMEL AI Framework (core + tools)
+camel-ai[tools]>=0.2.0
+
+# FastAPI backend
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+
+# Streamlit UI
+streamlit>=1.35.0
+streamlit-extras>=0.4.0
+
+# GitHub automation
+gitpython>=3.1.43
+PyGithub>=2.3.0
+
+# Web scraping / research
+scrapegraph-py>=1.6.0
+playwright>=1.44.0
+
+# Utilities
+rich>=13.7.0
+httpx>=0.27.0
+aiofiles>=23.2.1
+watchdog>=4.0.0
+loguru>=0.7.2
+tenacity>=8.3.0
+
+# Database (memory)
+sqlmodel>=0.0.19
+
+# AI providers (direct SDKs as backup)
+groq>=0.9.0
+anthropic>=0.29.0
