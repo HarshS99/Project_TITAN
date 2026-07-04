@@ -9,20 +9,39 @@
 ![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-F54E00?style=for-the-badge)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=for-the-badge&logo=fastapi)
 ![License](https://img.shields.io/badge/License-MIT-4ade80?style=for-the-badge)
+![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)
 
 **The world's first open-source AI Desktop Commander.**
 Built with CAMEL AI orchestration and an MCP Server for autonomous GitHub workflows.
 Type a project idea. Watch it get planned, coded, tested, and pushed to GitHub — automatically.
 
-[🚀 Quick Start](#-quick-start) · [📖 Documentation](#-how-it-works) · [🎯 Features](#-features)
+[🚀 Quick Start](#-quick-start) · [📖 How It Works](#-how-it-works) · [🎯 Features](#-features) · [🗺️ Roadmap](#️-roadmap) · [🤝 Contributing](#-contributing)
 
 </div>
 
 ---
 
+## 📑 Table of Contents
+
+- [What is Project TITAN?](#-what-is-project-titan)
+- [Features](#-features)
+- [Architecture](#️-architecture)
+- [How It Works](#-how-it-works)
+- [Quick Start](#-quick-start)
+- [Usage](#-usage)
+- [Project Structure](#-project-structure)
+- [AI Models](#-ai-models)
+- [Configuration Reference](#️-configuration-reference)
+- [Troubleshooting](#-troubleshooting)
+- [Roadmap](#️-roadmap)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+---
+
 ## 🌟 What is Project TITAN?
 
-Project TITAN is an **autonomous AI software engineering system** that orchestrates multiple specialized AI agents to build complete software projects from a single prompt.
+Project TITAN is an **autonomous AI software engineering system** that orchestrates multiple specialized AI agents to build complete software projects from a single prompt — no scaffolding, no boilerplate hunting, no manual repo setup.
 
 ```
 You type:  "Build me a FastAPI Todo API with authentication"
@@ -36,7 +55,7 @@ TITAN does:
   🔵 VS Code  →  Opens project automatically
 ```
 
-You don't touch anything.
+You don't touch anything — TITAN plans, writes, tests, documents, and ships the project end-to-end.
 
 ---
 
@@ -65,16 +84,16 @@ You don't touch anything.
 │                   STREAMLIT DASHBOARD                    │
 │              (Real-time agent activity feed)             │
 └────────────────────────┬────────────────────────────────┘
-                         │ HTTP
-┌────────────────────────▼────────────────────────────────┐
-│                   FASTAPI BACKEND                        │
-│              /build  /status  /projects                  │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                    ORCHESTRATOR                          │
-│         The master brain — coordinates everything        │
-└──┬──────────┬──────────┬──────────┬────────────┬────────┘
+                          │ HTTP
+┌─────────────────────────▼────────────────────────────────┐
+│                   FASTAPI BACKEND                         │
+│              /build  /status  /projects                   │
+└─────────────────────────┬───────────────────────────────-┘
+                          │
+┌─────────────────────────▼────────────────────────────────┐
+│                    ORCHESTRATOR                            │
+│         The master brain — coordinates everything          │
+└──┬──────────┬──────────┬──────────┬────────────┬─────────┘
    │          │          │          │            │
    ▼          ▼          ▼          ▼            ▼
 Planner    Code       Testing    Docs        GitHub
@@ -83,6 +102,20 @@ Agent      Agent      Agent      Agent       Controller
    │                                            │
    └─────────────── CAMEL AI ──────────────────┘
 ```
+
+---
+
+## 🔄 How It Works
+
+1. **Describe your project** in plain English through the dashboard, API, or Python SDK.
+2. **Planner Agent** decomposes the request into an ordered task graph (models, endpoints, tests, docs, deployment).
+3. **Code Agent** writes each file per the plan, respecting project conventions and dependencies.
+4. **Testing Agent** runs the project, catches failures, and iterates on fixes until things pass.
+5. **Docs Agent** generates a README, `.gitignore`, `LICENSE`, and optional CI/CD config.
+6. **GitHub Controller** initializes the repo, commits with meaningful messages, pushes, and cuts a release.
+7. **VS Code Controller** opens the finished project locally so you can dive straight in.
+
+Every step streams live to the dashboard so you can watch each agent's reasoning and output as it happens.
 
 ---
 
@@ -227,7 +260,50 @@ TITAN currently uses **Groq Llama 3.3 70B** for all agents (extremely fast + cap
 | Testing | Groq Llama 3.3 70B | Error diagnosis & fixing |
 | Docs | Groq Llama 3.3 70B | README & documentation |
 
-You can add Gemini or Mistral API keys to `.env` to enable those providers too.
+You can add Gemini or Mistral API keys to `.env` to enable those providers too, then set `model_router` preferences per agent.
+
+---
+
+## ⚙️ Configuration Reference
+
+| Variable | Required | Description |
+|----------|----------|--------------|
+| `GROQ_API_KEY` | ✅ | Powers all four agents by default |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | ✅ | Needs `repo` scope for repo creation, commits, and releases |
+| `SCRAPEGRAPH_API_KEY` | ❌ | Enables web research for agents that need up-to-date context |
+| `GEMINI_API_KEY` | ❌ | Optional alternate model provider |
+| `MISTRAL_API_KEY` | ❌ | Optional alternate model provider |
+
+---
+
+## 🛠 Troubleshooting
+
+- **Backend won't start** — confirm `GROQ_API_KEY` is set in `.env` and the virtual environment is activated.
+- **GitHub push fails** — verify your PAT has `repo` scope and hasn't expired.
+- **VS Code doesn't open automatically** — make sure the `code` CLI command is on your `PATH` (Command Palette → "Shell Command: Install 'code' command in PATH").
+- **Dashboard shows no activity** — check that the FastAPI backend (Terminal 1) is running before launching Streamlit.
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Multi-language support beyond Python (Node.js, Go)
+- [ ] Pluggable agent framework for custom workflows
+- [ ] Docker Compose one-command launch
+- [ ] Built-in deployment targets (Vercel, Railway, Fly.io)
+- [ ] Fine-grained per-agent model selection in the dashboard
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repo and create a feature branch.
+2. Make your changes with clear, focused commits.
+3. Open a pull request describing what you changed and why.
+
+Please open an issue first for larger changes so we can discuss the approach.
 
 ---
 
