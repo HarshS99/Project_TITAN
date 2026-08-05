@@ -11,13 +11,13 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlmodel import Field, Session, SQLModel, create_engine, select
 from loguru import logger
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from backend.config import DB_PATH
 
-
 # ── Models ─────────────────────────────────────────────────────────────────
+
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
@@ -82,6 +82,7 @@ def get_engine():
 
 # ── SessionMemory Class ────────────────────────────────────────────────────
 
+
 class SessionMemory:
     """
     Persistent session memory for TITAN.
@@ -114,7 +115,9 @@ class SessionMemory:
             logger.info(f"Project created in DB: {name} (ID: {project.id})")
             return project.id
 
-    def update_project_status(self, project_id: int, status: str, github_url: str = "") -> None:
+    def update_project_status(
+        self, project_id: int, status: str, github_url: str = ""
+    ) -> None:
         with Session(self._engine) as session:
             project = session.get(ProjectRecord, project_id)
             if project:
@@ -140,7 +143,9 @@ class SessionMemory:
 
     def list_projects(self) -> list[ProjectRecord]:
         with Session(self._engine) as session:
-            return session.exec(select(ProjectRecord).order_by(ProjectRecord.id.desc())).all()
+            return session.exec(
+                select(ProjectRecord).order_by(ProjectRecord.id.desc())
+            ).all()
 
     # ── Tasks ─────────────────────────────────────────────────
 
@@ -189,7 +194,14 @@ class SessionMemory:
 
     # ── Agent Logs ────────────────────────────────────────────
 
-    def log(self, project_id: int, agent: str, action: str, message: str, level: str = "info") -> None:
+    def log(
+        self,
+        project_id: int,
+        agent: str,
+        action: str,
+        message: str,
+        level: str = "info",
+    ) -> None:
         with Session(self._engine) as session:
             record = AgentLogRecord(
                 project_id=project_id,

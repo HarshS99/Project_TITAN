@@ -8,8 +8,8 @@ Uses PyGithub (REST API) + GitPython (local git) + gh CLI.
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import git
@@ -88,14 +88,19 @@ class GitHubController:
         """Create a commit."""
         try:
             repo = self._get_repo()
-            if not repo.index.diff("HEAD") and not repo.untracked_files:
-                # Check if there's anything to commit
-                try:
-                    repo.head.commit  # Will fail if no commits yet
+
+            # Check if this is the first commit (no HEAD yet)
+            has_commits = True
+            try:
+                repo.head.commit
+            except (ValueError, TypeError):
+                has_commits = False
+
+            if has_commits:
+                # Only skip if there are truly no changes
+                if not repo.index.diff("HEAD") and not repo.untracked_files:
                     logger.info("Nothing to commit")
                     return True
-                except Exception:
-                    pass  # First commit, continue
 
             repo.index.commit(message)
             logger.success(f"✅ Committed: {message}")
@@ -141,7 +146,9 @@ class GitHubController:
             logger.error(f"set_remote failed: {e}")
             return False
 
-    def git_push(self, branch: str = "main", remote: str = "origin", force: bool = False) -> bool:
+    def git_push(
+        self, branch: str = "main", remote: str = "origin", force: bool = False
+    ) -> bool:
         """Push to remote."""
         try:
             repo = self._get_repo()
@@ -162,8 +169,9 @@ class GitHubController:
         """Fallback git push via subprocess."""
         force_flag = "--force" if force else ""
         cmd = f"git push {remote} {branch} {force_flag} --set-upstream"
-        result = subprocess.run(cmd, shell=True, cwd=self.project_root,
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, shell=True, cwd=self.project_root, capture_output=True, text=True
+        )
         if result.returncode == 0:
             logger.success(f"✅ Pushed via subprocess: {branch}")
             return True
@@ -242,7 +250,9 @@ class GitHubController:
             logger.error(f"create_release failed: {e}")
             return None
 
-    def create_issue(self, repo_name: str, title: str, body: str, labels: list[str] | None = None) -> Optional[str]:
+    def create_issue(
+        self, repo_name: str, title: str, body: str, labels: list[str] | None = None
+    ) -> Optional[str]:
         """Create a GitHub issue."""
         if not self._user:
             return None
@@ -320,7 +330,7 @@ class GitHubController:
                 results["branches_pushed"].append("master")
 
         # 6. Push extra branches
-        for branch in (branches or ["develop"]):
+        for branch in branches or ["develop"]:
             try:
                 self.create_branch(branch)
                 self.git_push(branch)

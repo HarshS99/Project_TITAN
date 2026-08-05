@@ -196,8 +196,10 @@ curl http://localhost:8000/projects
 ```python
 from backend.orchestrator import Orchestrator
 
+
 def on_progress(event):
     print(f"[{event.agent}] {event.action}: {event.message}")
+
 
 orchestrator = Orchestrator(on_progress=on_progress)
 result = orchestrator.build("Build a FastAPI todo API")
@@ -223,7 +225,7 @@ Project_TITAN/
 │   ├── config.py           ← Configuration
 │   │
 │   ├── ai/
-│   │   └── model_router.py ← Routes to AI providers
+│   │   └── model_factory.py ← Routes to AI providers
 │   │
 │   ├── agents/
 │   │   ├── planner_agent.py   ← Breaks projects into tasks

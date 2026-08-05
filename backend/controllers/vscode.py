@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+
 from loguru import logger
 
 
@@ -29,9 +30,12 @@ class VSCodeController:
                 logger.success(f"✅ Opened VS Code: {self.project_root}")
                 return True
             else:
-                logger.warning(f"code CLI not found, trying 'open' (macOS): {result.stderr}")
-                subprocess.run(f"open -a 'Visual Studio Code' '{self.project_root}'",
-                               shell=True)
+                logger.warning(
+                    f"code CLI not found, trying 'open' (macOS): {result.stderr}"
+                )
+                subprocess.run(
+                    f"open -a 'Visual Studio Code' '{self.project_root}'", shell=True
+                )
                 return True
         except Exception as e:
             logger.error(f"open_project failed: {e}")
@@ -48,6 +52,7 @@ class VSCodeController:
 
     def is_available(self) -> bool:
         """Check if VS Code CLI is available."""
-        result = subprocess.run("code --version", shell=True,
-                                capture_output=True, text=True)
+        result = subprocess.run(
+            "code --version", shell=True, capture_output=True, text=True
+        )
         return result.returncode == 0

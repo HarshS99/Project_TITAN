@@ -5,20 +5,18 @@ REST API server that powers the Streamlit UI and exposes TITAN's capabilities.
 
 from __future__ import annotations
 
-import asyncio
 import threading
+import time
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from loguru import logger
 from pydantic import BaseModel
 
-from backend.config import validate_config, get_available_providers, PROJECTS_DIR
-from backend.orchestrator import Orchestrator, ProgressEvent, BuildResult
+from backend.config import PROJECTS_DIR, get_available_providers, validate_config
 from backend.memory import SessionMemory
-from loguru import logger
 
 # ── App setup ─────────────────────────────────────────────────────────────
 
@@ -41,7 +39,31 @@ memory = SessionMemory()
 _active_builds: dict[str, dict] = {}
 
 
+def _cleanup_old_builds() -> None:
+    """Remove completed/failed builds older than 2 hours to prevent memory leaks."""
+    import time
+
+    TWO_HOURS = 7200
+    while True:
+        time.sleep(600)  # Check every 10 minutes
+        cutoff = time.time() - TWO_HOURS
+        to_delete = [
+            bid
+            for bid, state in list(_active_builds.items())
+            if state.get("status") in ("done", "failed")
+            and state.get("_finished_at", 0) < cutoff
+        ]
+        for bid in to_delete:
+            _active_builds.pop(bid, None)
+            logger.debug(f"Evicted stale build: {bid}")
+
+
+_cleanup_thread = threading.Thread(target=_cleanup_old_builds, daemon=True)
+_cleanup_thread.start()
+
+
 # ── Request/Response Models ────────────────────────────────────────────────
+
 
 class BuildRequest(BaseModel):
     request: str
@@ -62,6 +84,7 @@ class BuildStatusResponse(BaseModel):
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
+
 
 @app.get("/")
 def root():
@@ -89,6 +112,7 @@ def health():
 def start_build(req: BuildRequest, background_tasks: BackgroundTasks) -> dict:
     """Start a new project build. Returns a build_id to track progress."""
     import uuid
+
     build_id = str(uuid.uuid4())[:8]
     _active_builds[build_id] = {
         "status": "starting",
@@ -99,25 +123,29 @@ def start_build(req: BuildRequest, background_tasks: BackgroundTasks) -> dict:
         "result": None,
     }
 
-    def progress_handler(event: ProgressEvent):
+    def progress_handler(event):
         state = _active_builds[build_id]
-        state["events"].append({
-            "step": event.step,
-            "total": event.total,
-            "agent": event.agent,
-            "action": event.action,
-            "message": event.message,
-            "status": event.status,
-            "file_path": event.file_path,
-            "percent": event.percent,
-            "timestamp": event.timestamp,
-        })
+        state["events"].append(
+            {
+                "step": event.step,
+                "total": event.total,
+                "agent": event.agent,
+                "action": event.action,
+                "message": event.message,
+                "status": event.status,
+                "file_path": event.file_path,
+                "percent": event.percent,
+                "timestamp": event.timestamp,
+            }
+        )
         state["progress"] = event.percent
         state["current_agent"] = event.agent
         state["current_action"] = event.action
         state["status"] = "building"
 
     def run_build():
+        from backend.orchestrator import Orchestrator
+
         try:
             orchestrator = Orchestrator(on_progress=progress_handler)
             result = orchestrator.build(
@@ -128,6 +156,7 @@ def start_build(req: BuildRequest, background_tasks: BackgroundTasks) -> dict:
                 extra_branches=req.extra_branches,
             )
             _active_builds[build_id]["status"] = "done" if result.success else "failed"
+            _active_builds[build_id]["_finished_at"] = time.time()
             _active_builds[build_id]["progress"] = 100
             _active_builds[build_id]["result"] = {
                 "success": result.success,
@@ -142,12 +171,16 @@ def start_build(req: BuildRequest, background_tasks: BackgroundTasks) -> dict:
         except Exception as e:
             logger.error(f"Build {build_id} crashed: {e}")
             _active_builds[build_id]["status"] = "failed"
+            _active_builds[build_id]["_finished_at"] = time.time()
             _active_builds[build_id]["result"] = {"success": False, "error": str(e)}
 
     thread = threading.Thread(target=run_build, daemon=True)
     thread.start()
 
-    return {"build_id": build_id, "message": f"Build started! Track at /build/{build_id}"}
+    return {
+        "build_id": build_id,
+        "message": f"Build started! Track at /build/{build_id}",
+    }
 
 
 @app.get("/build/{build_id}")

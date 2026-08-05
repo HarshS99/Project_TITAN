@@ -7,10 +7,8 @@ and streams results for the UI. Handles installs, running servers, git, etc.
 from __future__ import annotations
 
 import subprocess
-import shlex
-import asyncio
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Generator
 
 from loguru import logger
@@ -63,6 +61,7 @@ class TerminalController:
             CommandResult with stdout, stderr, returncode
         """
         import os
+
         full_env = os.environ.copy()
         if env:
             full_env.update(env)
@@ -112,7 +111,9 @@ class TerminalController:
                 success=False,
             )
 
-    def run_stream(self, command: str, timeout: int = 300) -> Generator[str, None, None]:
+    def run_stream(
+        self, command: str, timeout: int = 300
+    ) -> Generator[str, None, None]:
         """
         Run a command and yield output lines as they arrive (for live streaming to UI).
 
@@ -120,6 +121,7 @@ class TerminalController:
             Lines of stdout/stderr output
         """
         import os
+
         logger.info(f"🖥️  Streaming: {command}")
         process = subprocess.Popen(
             command,
@@ -141,7 +143,9 @@ class TerminalController:
             if process.stdout:
                 process.stdout.close()
 
-    def install_python_deps(self, requirements_file: str = "requirements.txt") -> CommandResult:
+    def install_python_deps(
+        self, requirements_file: str = "requirements.txt"
+    ) -> CommandResult:
         """Install Python dependencies."""
         return self.run(f"pip install -r {requirements_file}", timeout=180)
 

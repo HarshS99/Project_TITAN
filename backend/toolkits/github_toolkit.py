@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import git
+from camel.toolkits import FunctionTool
+from camel.toolkits.base import BaseToolkit
 from github import Github, GithubException
 from loguru import logger
 
-from camel.toolkits.base import BaseToolkit
-from camel.toolkits import FunctionTool
 from backend.config import GITHUB_TOKEN, GITHUB_USERNAME
 
 
@@ -33,10 +33,12 @@ class TITANGithubToolkit(BaseToolkit):
             FunctionTool(self.git_push_code),
         ]
 
-    def create_github_repo(self, repo_name: str, description: str = "", private: bool = False) -> str:
+    def create_github_repo(
+        self, repo_name: str, description: str = "", private: bool = False
+    ) -> str:
         """
         Creates a new GitHub repository for the authenticated user.
-        
+
         Args:
             repo_name (str): Name of the new repository
             description (str): Description of the repository
@@ -69,12 +71,14 @@ class TITANGithubToolkit(BaseToolkit):
             return repo.html_url
         except Exception as e:
             logger.error(f"Failed to create repo: {e}")
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
 
-    def git_init_and_commit(self, project_root: str, commit_message: str = "Initial commit") -> str:
+    def git_init_and_commit(
+        self, project_root: str, commit_message: str = "Initial commit"
+    ) -> str:
         """
         Initializes a local git repository in the given directory, stages all files, and creates an initial commit.
-        
+
         Args:
             project_root (str): Absolute path to the project directory
             commit_message (str): Message for the initial commit
@@ -92,27 +96,30 @@ class TITANGithubToolkit(BaseToolkit):
                 repo = git.Repo(root)
             else:
                 repo = git.Repo.init(root)
-            
+
             # Add all
             repo.git.add(A=True)
-            
-            # Commit
-            if not repo.index.diff("HEAD") and not repo.untracked_files:
-                try:
-                    repo.head.commit
+
+            # Only commit if there is actually something staged / uncommitted
+            try:
+                repo.head.commit  # Raises ValueError if no commits yet
+                # Repo has commits — check if there's anything new
+                if not repo.index.diff("HEAD") and not repo.untracked_files:
                     return "Success: Nothing to commit (already committed)"
-                except Exception:
-                    pass
+            except ValueError, TypeError:
+                pass  # No HEAD yet — this is a fresh repo; proceed to commit
 
             repo.index.commit(commit_message)
             return "Success: Git repo initialized and initial commit created."
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"
 
-    def git_push_code(self, project_root: str, repo_name: str, branches: List[str] = None) -> str:
+    def git_push_code(
+        self, project_root: str, repo_name: str, branches: List[str] = None
+    ) -> str:
         """
         Sets the remote URL to the GitHub repository and pushes the specified branches.
-        
+
         Args:
             project_root (str): Absolute path to the project directory
             repo_name (str): Name of the repository on GitHub
@@ -159,9 +166,11 @@ class TITANGithubToolkit(BaseToolkit):
                         repo.git.checkout("-b", branch)
                     except Exception:
                         pass
-                
+
                 cmd = f"git push origin {branch} --set-upstream"
-                result = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True)
+                result = subprocess.run(
+                    cmd, shell=True, cwd=root, capture_output=True, text=True
+                )
                 if result.returncode == 0:
                     pushed.append(branch)
                 else:
@@ -169,4 +178,4 @@ class TITANGithubToolkit(BaseToolkit):
 
             return f"Success: Pushed branches {', '.join(pushed)} to {repo_name}"
         except Exception as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e!s}"

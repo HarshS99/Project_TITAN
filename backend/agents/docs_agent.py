@@ -6,13 +6,10 @@ README.md, .gitignore, LICENSE, CONTRIBUTING.md, GitHub Actions CI/CD.
 
 from __future__ import annotations
 
+from camel.agents import ChatAgent
 from loguru import logger
 
-from camel.agents import ChatAgent
-from camel.types import ModelPlatformType
-import os
 from backend.ai.model_factory import docs_model, get_model_by_provider
-
 
 DOCS_SYSTEM_MESSAGE = """You are TITAN's Documentation Engineer — you write stunning, professional project documentation.
 
@@ -37,7 +34,9 @@ class DocsAgent:
             system_message=DOCS_SYSTEM_MESSAGE,
             model=model,
         )
-        logger.info(f"DocsAgent initialized (Provider: {provider or 'default mistral'})")
+        logger.info(
+            f"DocsAgent initialized (Provider: {provider or 'default mistral'})"
+        )
 
     def generate_readme(
         self,
@@ -90,6 +89,7 @@ Return ONLY the .gitignore content.
     def generate_license(self, author_name: str = "Project TITAN") -> str:
         """Generate MIT LICENSE."""
         from datetime import datetime
+
         year = datetime.now().year
         return f"""MIT License
 
@@ -114,7 +114,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-    def generate_github_actions(self, tech_stack: list[str], project_type: str = "python") -> str:
+    def generate_github_actions(
+        self, tech_stack: list[str], project_type: str = "python"
+    ) -> str:
         """Generate GitHub Actions CI/CD workflow."""
         prompt = f"""
 Tech Stack: {", ".join(tech_stack)}
@@ -129,7 +131,11 @@ Return ONLY the YAML content.
         # Remove markdown fences if present
         if content.startswith("```"):
             lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+            content = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip() == "```"
+                else "\n".join(lines[1:])
+            )
         return content
 
     def generate_contributing(self, project_name: str) -> str:
@@ -141,6 +147,29 @@ Return ONLY the file content.
 """
         response = self._agent.step(prompt)
         return response.msgs[0].content.strip()
+
+    def generate_vscode_tasks(self, tech_stack: list[str]) -> str:
+        """Generate .vscode/tasks.json for auto-installing dependencies and running the app."""
+        prompt = f"""
+Tech Stack: {", ".join(tech_stack)}
+
+Generate a `.vscode/tasks.json` file that defines tasks to:
+1. Automatically install dependencies for this stack (e.g. pip install -r requirements.txt or npm install).
+2. Automatically run the project (e.g. python app.py or npm start).
+Both tasks MUST have `"runOptions": {{"runOn": "folderOpen"}}` so they run automatically when the folder opens. 
+Ensure the run task "dependsOn" the install task.
+Return ONLY the raw JSON content without markdown fences.
+"""
+        response = self._agent.step(prompt)
+        content = response.msgs[0].content.strip()
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip() == "```"
+                else "\n".join(lines[1:])
+            )
+        return content
 
     def reset(self):
         self._agent.reset()

@@ -1,4 +1,3 @@
-import asyncio
 from backend.mcp_servers.mcp_clients import run_action
 
 print("Testing GitHub Agent...")

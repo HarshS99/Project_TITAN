@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -74,6 +73,8 @@ class FilesystemController:
         path = self.resolve(relative_path)
         if not path.exists():
             raise FileNotFoundError(f"File not found: {relative_path}")
+        if not path.is_file():
+            raise IsADirectoryError(f"Expected a file, but found a directory: {relative_path}")
         return path.read_text(encoding="utf-8")
 
     def append_file(self, relative_path: str, content: str) -> Path:
@@ -94,8 +95,9 @@ class FilesystemController:
         return False
 
     def file_exists(self, relative_path: str) -> bool:
-        """Check if a file exists."""
-        return self.resolve(relative_path).exists()
+        """Check if a file exists and is actually a file."""
+        path = self.resolve(relative_path)
+        return path.exists() and path.is_file()
 
     def rename_file(self, old_path: str, new_path: str) -> Path:
         """Rename/move a file within the project."""
@@ -110,15 +112,25 @@ class FilesystemController:
 
     def get_file_tree(self, max_depth: int = 5) -> dict:
         """Return the project file tree as a nested dict."""
+
         def _build_tree(path: Path, depth: int = 0) -> dict:
             if depth >= max_depth:
                 return {}
             result = {}
             try:
                 for item in sorted(path.iterdir()):
-                    if item.name.startswith(".") and item.name not in {".env.example", ".gitignore"}:
+                    if item.name.startswith(".") and item.name not in {
+                        ".env.example",
+                        ".gitignore",
+                    }:
                         continue
-                    if item.name in {"node_modules", "__pycache__", ".git", "venv", ".venv"}:
+                    if item.name in {
+                        "node_modules",
+                        "__pycache__",
+                        ".git",
+                        "venv",
+                        ".venv",
+                    }:
                         continue
                     if item.is_dir():
                         result[item.name + "/"] = _build_tree(item, depth + 1)
@@ -127,6 +139,7 @@ class FilesystemController:
             except PermissionError:
                 pass
             return result
+
         return _build_tree(self.project_root)
 
     def get_all_files(self, extensions: list[str] | None = None) -> list[str]:
@@ -136,8 +149,11 @@ class FilesystemController:
             if p.is_file():
                 rel = str(p.relative_to(self.project_root))
                 # Skip hidden dirs and common ignored dirs
-                if any(part.startswith(".") or part in {"node_modules", "__pycache__", "venv", ".venv"}
-                       for part in p.parts):
+                if any(
+                    part.startswith(".")
+                    or part in {"node_modules", "__pycache__", "venv", ".venv"}
+                    for part in p.parts
+                ):
                     continue
                 if extensions is None or p.suffix in extensions:
                     files.append(rel)

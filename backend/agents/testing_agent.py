@@ -7,13 +7,11 @@ and suggest precise code fixes. Iterates until the project runs cleanly.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from loguru import logger
 
 from camel.agents import ChatAgent
-from camel.types import ModelPlatformType
-import os
-from backend.ai.model_factory import testing_model, get_model_by_provider
+from loguru import logger
 
+from backend.ai.model_factory import get_model_by_provider, testing_model
 
 TESTING_SYSTEM_MESSAGE = """You are TITAN's QA Engineer and Error Detective — a senior developer who specializes in debugging.
 
@@ -64,7 +62,9 @@ class TestingAgent:
             system_message=TESTING_SYSTEM_MESSAGE,
             model=model,
         )
-        logger.info(f"TestingAgent initialized (Provider: {provider or 'default groq'})")
+        logger.info(
+            f"TestingAgent initialized (Provider: {provider or 'default groq'})"
+        )
 
     def diagnose(
         self,
@@ -83,7 +83,6 @@ class TestingAgent:
         Returns:
             DiagnosisResult with fix instructions
         """
-        import json, re
 
         file_section = ""
         if file_contents:
@@ -108,13 +107,16 @@ Analyze this output. Return diagnosis as strict JSON only.
         # Parse JSON
         result = self._parse_diagnosis(raw)
         if result.has_error:
-            logger.warning(f"Error detected: {result.error_type} — {result.error_summary}")
+            logger.warning(
+                f"Error detected: {result.error_type} — {result.error_summary}"
+            )
         else:
             logger.success("No errors detected — project running cleanly!")
         return result
 
     def _parse_diagnosis(self, text: str) -> DiagnosisResult:
-        import json, re
+        import json
+        import re
 
         # Extract JSON
         try:

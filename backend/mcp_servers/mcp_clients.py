@@ -8,17 +8,18 @@ Supports two modes:
 Uses a manual tool-calling loop with llm.bind_tools() — no prebuilt agent needed.
 """
 
-import os
-import json
 import asyncio
+import json
+import os
 import threading
-import subprocess
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # ── Safely apply nest_asyncio (skip if uvloop is active) ────────────
 try:
     import nest_asyncio
+
     try:
         # Prefer the currently running loop if available
         loop = asyncio.get_running_loop()
@@ -36,18 +37,19 @@ try:
 except Exception:
     pass  # uvloop or no running loop — skip patching
 
-from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from mcp.client.sse import sse_client
-from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_core.tools import tool
-from langchain.agents import create_agent
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.prebuilt import create_react_agent
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 
 try:
     from scrapegraph_py import Client as ScrapeClient
+
     _SCRAPEGRAPH_AVAILABLE = True
 except ImportError:
     _SCRAPEGRAPH_AVAILABLE = False
@@ -72,16 +74,16 @@ if config_path.is_file():
     try:
         with open(config_path) as f:
             cfg = json.load(f)
-        
+
         # Support {"mcpServers": {"github": ...}}, {"mcp": {"servers": {"github": ...}}}, or {"servers": {"github": ...}}
         github_cfg = cfg.get("mcpServers", {}).get("github")
         if not github_cfg:
             github_cfg = cfg.get("mcp", {}).get("servers", {}).get("github")
         if not github_cfg:
             github_cfg = cfg.get("servers", {}).get("github", {})
-            
+
         MCP_SERVER_TYPE = github_cfg.get("type", "stdio")
-        
+
         if MCP_SERVER_TYPE == "http":
             MCP_URL = github_cfg.get("url")
             headers = github_cfg.get("headers", {})
@@ -108,18 +110,38 @@ if GITHUB_TOKEN:
         "GITHUB_AUTH",
         "GITHUB_ACCESS_TOKEN",
         "GITHUB_AUTH_TOKEN",
-        "GITHUB_PAT"
+        "GITHUB_PAT",
     ]:
         MCP_ENV[key] = GITHUB_TOKEN
 
-# Fallback to binary in project root
+# Fallback to npx if no custom command is provided
 if MCP_SERVER_TYPE == "stdio" and not MCP_COMMAND:
-    default_binary = Path(__file__).parent / "github-mcp-server"
-    if default_binary.is_file():
-        MCP_COMMAND = str(default_binary)
-        MCP_ARGS = ["stdio", "--toolsets", "all"]
-    else:
-        MCP_COMMAND = None
+    MCP_COMMAND = "npx"
+    MCP_ARGS = ["-y", "@modelcontextprotocol/server-github"]
+
+
+# ── GitHub Username Detection ───────────────────────────────────────
+def _detect_github_username() -> str:
+    """Detect the GitHub username from the configured token via the API."""
+    if not GITHUB_TOKEN:
+        raise ValueError(
+            "GITHUB_PERSONAL_ACCESS_TOKEN is not set — cannot detect username."
+        )
+    try:
+        import requests
+
+        resp = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {GITHUB_TOKEN}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("login", "")
+    except Exception:
+        pass
+    raise ValueError(
+        "Could not detect GitHub username. Set GITHUB_USERNAME in your .env file."
+    )
 
 
 # ── LLM with smart provider fallback ────────────────────────────────
@@ -132,7 +154,6 @@ def _get_llm():
                 model="gemini-2.0-flash",
                 google_api_key=gemini_key,
                 temperature=0,
-                convert_system_message_to_human=True,
             )
         except Exception:
             pass  # Fall through to Groq
@@ -174,6 +195,7 @@ def extract_documentation(url: str) -> str:
     )
     return scrape_website.invoke({"url": url, "prompt": prompt})
 
+
 # ── MCP Tool Filter ──────────────────────────────────────────────────
 ESSENTIAL_TOOL_NAMES = {
     "create_repository",
@@ -208,7 +230,11 @@ def _filter_tools(tools: list) -> list:
 def _trim_tool_descriptions(tools: list, max_chars: int = 120) -> list:
     """Truncate tool descriptions to reduce token count for Groq's TPM limit."""
     for t in tools:
-        if hasattr(t, 'description') and t.description and len(t.description) > max_chars:
+        if (
+            hasattr(t, "description")
+            and t.description
+            and len(t.description) > max_chars
+        ):
             t.description = t.description[:max_chars].rstrip() + "…"
     return tools
 
@@ -216,6 +242,7 @@ def _trim_tool_descriptions(tools: list, max_chars: int = 120) -> list:
 # ── Action Mode (MCP Tools) ─────────────────────────────────────────
 MAX_RETRIES = 5
 RETRY_BASE_DELAY = 30  # seconds
+
 
 async def run_action_async(query: str, system_prompt_override: str = None) -> str:
     """Execute GitHub actions via official MCP Server tools with auto-retry on rate limits."""
@@ -230,19 +257,19 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
                 if MCP_SERVER_TYPE == "http":
                     if not MCP_URL:
                         raise ValueError("HTTP MCP URL not specified in config.")
-                    async with sse_client(url=MCP_URL, headers=MCP_HEADERS) as (read, write):
+                    async with sse_client(url=MCP_URL, headers=MCP_HEADERS) as (
+                        read,
+                        write,
+                    ):
                         yield read, write
                 else:
                     if not MCP_COMMAND:
                         raise ValueError(
-                            "MCP configuration not found or binary missing.\n"
-                            "Please provide a valid `Config.json` or place the `github-mcp-server` binary "
-                            "in the project root directory."
+                            "MCP configuration not found or npx missing.\n"
+                            "Please provide a valid `Config.json` or ensure `npx` is installed."
                         )
                     server_params = StdioServerParameters(
-                        command=MCP_COMMAND,
-                        args=MCP_ARGS,
-                        env=MCP_ENV
+                        command=MCP_COMMAND, args=MCP_ARGS, env=MCP_ENV
                     )
                     async with stdio_client(server_params) as (read, write):
                         yield read, write
@@ -258,7 +285,7 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
                     tools = await load_mcp_tools(session)
 
                     if not tools:
-                        return "❌ No MCP tools loaded. Check the github-mcp-server binary."
+                        return "❌ No MCP tools loaded. Check if `npx` is working."
 
                     filtered = _filter_tools(tools)
                     filtered = filtered + [scrape_website, extract_documentation]
@@ -284,19 +311,25 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
                             "Provide concise, actionable responses."
                         )
 
-                    agent = create_agent(
+                    agent = create_react_agent(
                         model=llm,
                         tools=filtered,
-                        system_prompt=system_prompt,
+                        prompt=system_prompt,
                     )
 
-                    response = await agent.ainvoke({"messages": [HumanMessage(content=query)]})
-                    
+                    response = await agent.ainvoke(
+                        {"messages": [HumanMessage(content=query)]}
+                    )
+
                     # Get the last message content
                     if "messages" in response and len(response["messages"]) > 0:
                         content = response["messages"][-1].content
                         if isinstance(content, list):
-                            text_blocks = [block["text"] for block in content if isinstance(block, dict) and "text" in block]
+                            text_blocks = [
+                                block["text"]
+                                for block in content
+                                if isinstance(block, dict) and "text" in block
+                            ]
                             if text_blocks:
                                 return "\n".join(text_blocks)
                             return str(content)
@@ -305,12 +338,12 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
 
         except FileNotFoundError:
             return (
-                "❌ `github-mcp-server` binary not found.\n"
-                "Download it from: https://github.com/github/github-mcp-server/releases\n"
-                "Place it in the project root directory."
+                "❌ `npx` command failed or @modelcontextprotocol/server-github not found.\n"
+                "Please ensure Node.js is installed."
             )
-        except Exception as e:
+        except Exception:
             import traceback
+
             tb_str = traceback.format_exc()
 
             # Check if it's a rate-limit error
@@ -322,7 +355,9 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
 
             if is_rate_limit and attempt < MAX_RETRIES:
                 delay = RETRY_BASE_DELAY * attempt
-                print(f"[agent] Rate limited (attempt {attempt}/{MAX_RETRIES}). Retrying in {delay}s...")
+                print(
+                    f"[agent] Rate limited (attempt {attempt}/{MAX_RETRIES}). Retrying in {delay}s..."
+                )
                 await asyncio.sleep(delay)
                 last_error = tb_str
                 continue
@@ -336,6 +371,7 @@ async def run_action_async(query: str, system_prompt_override: str = None) -> st
 
             if "tool_use_failed" in tb_str or "BadRequestError" in tb_str:
                 import re
+
                 m = re.search(r"'failed_generation':\s*'(.*?)'", tb_str, re.DOTALL)
                 if m:
                     failed = m.group(1)
@@ -378,22 +414,29 @@ def run_action(query: str, system_prompt_override: str = None) -> str:
 
 
 # ── Project TITAN Integration Wrapper ───────────────────────────────────────
-def run_push(project_root: str, repo_name: str, description: str = "",
-             private: bool = False, branches: list[str] | None = None) -> dict:
+def run_push(
+    project_root: str,
+    repo_name: str,
+    description: str = "",
+    private: bool = False,
+    branches: list[str] | None = None,
+) -> dict:
     """
     Adapter for TITAN's Phase 5 orchestrator. Creates the repo via GitHub REST API
-    (bypassing LLMs for speed and 100% reliability), then performs local git init 
+    (bypassing LLMs for speed and 100% reliability), then performs local git init
     and pushes via CLI.
     """
-    import requests
     import subprocess
+
     import git
+    import requests
+
     from backend.config import GITHUB_USERNAME
-    
+
     branches = branches or ["main"]
     result = {"success": False, "repo_url": "", "errors": []}
     root = Path(project_root)
-    
+
     if not GITHUB_TOKEN:
         result["errors"].append("GITHUB_PERSONAL_ACCESS_TOKEN is missing.")
         return result
@@ -407,40 +450,51 @@ def run_push(project_root: str, repo_name: str, description: str = "",
 
         repo.git.add(A=True)
         try:
-            repo.head.commit
+            repo.git.commit("-m", f"🤖 {repo_name} — Generated by Project TITAN")
         except Exception:
-            repo.index.commit(f"🤖 {repo_name} — Generated by Project TITAN")
+            pass
     except Exception as e:
         result["errors"].append(f"git init/commit failed: {e}")
         return result
 
     # 2. Create the GitHub Repository via REST API (Ultra-fast, zero AI tokens)
     headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
     }
     payload = {
         "name": repo_name,
         "description": description,
         "private": private,
-        "auto_init": False
+        "auto_init": False,
     }
-    
+
     print(f"[GitHub API] Creating repository '{repo_name}'...")
-    res = requests.post("https://api.github.com/user/repos", json=payload, headers=headers)
-    
+    res = requests.post(
+        "https://api.github.com/user/repos", json=payload, headers=headers
+    )
+
     if res.status_code in (201, 200):
         repo_data = res.json()
-        result["repo_url"] = repo_data.get("clone_url")
-    elif res.status_code == 422: # Repo already exists
-        print(f"[GitHub API] Repository '{repo_name}' already exists. Attempting to fetch URL...")
-        # Fetch the existing repo URL
-        username = GITHUB_USERNAME or "HarshS99"
-        get_res = requests.get(f"https://api.github.com/repos/{username}/{repo_name}", headers=headers)
+        # html_url is the human-readable link (https://github.com/user/repo)
+        # clone_url is used only internally for git push auth
+        result["repo_url"] = repo_data.get("html_url", "")
+        result["_clone_url"] = repo_data.get("clone_url", "")
+    elif res.status_code == 422:  # Repo already exists
+        print(
+            f"[GitHub API] Repository '{repo_name}' already exists. Attempting to fetch URL..."
+        )
+        username = GITHUB_USERNAME or _detect_github_username()
+        get_res = requests.get(
+            f"https://api.github.com/repos/{username}/{repo_name}", headers=headers
+        )
         if get_res.status_code == 200:
-            result["repo_url"] = get_res.json().get("clone_url")
+            result["repo_url"] = get_res.json().get("html_url", "")
+            result["_clone_url"] = get_res.json().get("clone_url", "")
         else:
-            result["errors"].append(f"Repo exists but could not fetch it: {get_res.text}")
+            result["errors"].append(
+                f"Repo exists but could not fetch it: {get_res.text}"
+            )
             return result
     else:
         result["errors"].append(f"GitHub API Error {res.status_code}: {res.text}")
@@ -452,10 +506,11 @@ def run_push(project_root: str, repo_name: str, description: str = "",
 
     # 3. Push code to the new repository via subprocess (token auth)
     try:
-        username = GITHUB_USERNAME or "HarshS99"
-        # Format push URL with token for auth
-        push_url = result["repo_url"].replace("https://", f"https://{username}:{GITHUB_TOKEN}@")
-        
+        username = GITHUB_USERNAME or _detect_github_username()
+        # Build authenticated push URL from clone_url (not html_url)
+        clone_url = result.get("_clone_url") or result["repo_url"].rstrip("/") + ".git"
+        push_url = clone_url.replace("https://", f"https://{username}:{GITHUB_TOKEN}@")
+
         try:
             origin = repo.remote("origin")
             origin.set_url(push_url)
@@ -471,7 +526,7 @@ def run_push(project_root: str, repo_name: str, description: str = "",
         cmd = "git push -u origin main --force"
         print(f"[GitHub Push] Pushing to {result['repo_url']}...")
         proc = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True)
-        
+
         if proc.returncode == 0:
             result["success"] = True
             print("[GitHub Push] Successfully pushed code to GitHub!")

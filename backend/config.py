@@ -5,6 +5,7 @@ Loads all environment variables and exposes them as typed constants.
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env from project root
@@ -25,7 +26,7 @@ GITHUB_USERNAME: str = os.getenv("GITHUB_USERNAME", "")
 DEFAULT_AI_PROVIDER: str = os.getenv("DEFAULT_AI_PROVIDER", "groq")
 DEFAULT_GROQ_MODEL: str = os.getenv("DEFAULT_GROQ_MODEL", "llama-3.3-70b-versatile")
 
-# Agent → model mapping
+# Agent → model mapping (must stay in sync with orchestrator._init_agents())
 AGENT_MODELS = {
     "planner": {
         "provider": "groq",
@@ -40,14 +41,14 @@ AGENT_MODELS = {
         "description": "Writes production-quality code",
     },
     "testing": {
-        "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "provider": "gemini",
+        "model": "gemini-2.0-flash",
         "temperature": 0.0,
         "description": "Runs tests and fixes errors",
     },
     "docs": {
-        "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "provider": "mistral",
+        "model": "mistral-small-latest",
         "temperature": 0.3,
         "description": "Generates README, docs, and GitHub files",
     },
@@ -55,9 +56,17 @@ AGENT_MODELS = {
 
 # ── Directories ───────────────────────────────────────────────
 ROOT_DIR = Path(__file__).parent.parent
-# Save projects directly to the Desktop so the user can see them
-PROJECTS_DIR = ROOT_DIR.parent
-LOGS_DIR = ROOT_DIR / os.getenv("TITAN_LOGS_DIR", "logs").lstrip("./")
+# Save projects to the configured directory (defaults to projects/ inside the repo)
+_projects_dir_env = os.getenv("TITAN_PROJECTS_DIR", "projects")
+PROJECTS_DIR = Path(_projects_dir_env)
+if not PROJECTS_DIR.is_absolute():
+    PROJECTS_DIR = ROOT_DIR / PROJECTS_DIR
+
+_logs_dir_env = os.getenv("TITAN_LOGS_DIR", "logs")
+LOGS_DIR = Path(_logs_dir_env)
+if not LOGS_DIR.is_absolute():
+    LOGS_DIR = ROOT_DIR / LOGS_DIR
+
 DB_PATH = ROOT_DIR / "titan_memory.db"
 
 # Ensure directories exist

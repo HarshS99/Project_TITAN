@@ -39,6 +39,11 @@ projects/
 .AppleDouble
 .LSOverride
 
+# MCP server config (may contain tokens)
+backend/mcp_servers/Config.json
+# GitHub MCP binary (downloaded separately)
+backend/mcp_servers/github-mcp-server
+
 # Streamlit
 .streamlit/
 

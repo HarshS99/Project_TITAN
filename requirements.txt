@@ -23,6 +23,19 @@ PyGithub>=2.3.0
 scrapegraph-py>=1.6.0
 playwright>=1.44.0
 
+# LangChain + LangGraph (MCP agent orchestration)
+langchain-core>=0.3.0
+langchain-groq>=0.2.0
+langchain-google-genai>=2.0.0
+langgraph>=0.2.0
+langchain-mcp-adapters>=0.1.0
+
+# MCP (Model Context Protocol)
+mcp[cli]>=1.0.0
+
+# Async utilities
+nest_asyncio>=1.6.0
+
 # Utilities
 rich>=13.7.0
 httpx>=0.27.0
@@ -37,3 +50,4 @@ sqlmodel>=0.0.19
 # AI providers (direct SDKs as backup)
 groq>=0.9.0
 anthropic>=0.29.0
+

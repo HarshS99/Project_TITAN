@@ -61,7 +61,9 @@ def _request(method: str, path: str, **kwargs) -> Any:
             "GitHub API returned 401 Unauthorized. Check GITHUB_PERSONAL_ACCESS_TOKEN."
         )
     if resp.status_code == 403 and "rate limit" in resp.text.lower():
-        raise RuntimeError("GitHub API rate limit exceeded. Add a token or wait and retry.")
+        raise RuntimeError(
+            "GitHub API rate limit exceeded. Add a token or wait and retry."
+        )
     if resp.status_code == 404:
         raise RuntimeError(f"Not found: {url}")
     if not resp.ok:
@@ -74,6 +76,7 @@ def _request(method: str, path: str, **kwargs) -> Any:
 # ---------------------------------------------------------------------------
 # Auth / identity
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def get_me() -> dict:
@@ -105,6 +108,7 @@ def list_user_repos(
 # ---------------------------------------------------------------------------
 # Repositories
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def get_repo(owner: str, repo: str) -> dict:
@@ -145,11 +149,15 @@ def search_repositories(query: str, sort: str = "stars", per_page: int = 10) -> 
 @mcp.tool()
 def list_branches(owner: str, repo: str, per_page: int = 30) -> list:
     """List branches in a repository."""
-    return _request("GET", f"/repos/{owner}/{repo}/branches", params={"per_page": per_page})
+    return _request(
+        "GET", f"/repos/{owner}/{repo}/branches", params={"per_page": per_page}
+    )
 
 
 @mcp.tool()
-def create_branch(owner: str, repo: str, new_branch: str, from_branch: str = "main") -> dict:
+def create_branch(
+    owner: str, repo: str, new_branch: str, from_branch: str = "main"
+) -> dict:
     """Create a new branch in a repository, based off an existing branch (default 'main').
     Requires a token with repo access.
     """
@@ -160,7 +168,9 @@ def create_branch(owner: str, repo: str, new_branch: str, from_branch: str = "ma
 
 
 @mcp.tool()
-def get_file_contents(owner: str, repo: str, path: str, ref: Optional[str] = None) -> dict:
+def get_file_contents(
+    owner: str, repo: str, path: str, ref: Optional[str] = None
+) -> dict:
     """Get the contents of a file or directory listing from a repository."""
     params = {"ref": ref} if ref else {}
     return _request("GET", f"/repos/{owner}/{repo}/contents/{path}", params=params)
@@ -209,6 +219,7 @@ def list_commits(
 # Issues
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
 def list_issues(
     owner: str, repo: str, state: str = "open", per_page: int = 30, page: int = 1
@@ -246,7 +257,9 @@ def create_issue(
 def add_issue_comment(owner: str, repo: str, issue_number: int, body: str) -> dict:
     """Add a comment to an issue or pull request. Requires a token."""
     return _request(
-        "POST", f"/repos/{owner}/{repo}/issues/{issue_number}/comments", json={"body": body}
+        "POST",
+        f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+        json={"body": body},
     )
 
 
@@ -254,13 +267,16 @@ def add_issue_comment(owner: str, repo: str, issue_number: int, body: str) -> di
 def close_issue(owner: str, repo: str, issue_number: int) -> dict:
     """Close an open issue. Requires a token."""
     return _request(
-        "PATCH", f"/repos/{owner}/{repo}/issues/{issue_number}", json={"state": "closed"}
+        "PATCH",
+        f"/repos/{owner}/{repo}/issues/{issue_number}",
+        json={"state": "closed"},
     )
 
 
 # ---------------------------------------------------------------------------
 # Pull Requests
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def list_pull_requests(
@@ -312,16 +328,21 @@ def merge_pull_request(
 
 
 @mcp.tool()
-def list_pull_request_files(owner: str, repo: str, pr_number: int, per_page: int = 30) -> list:
+def list_pull_request_files(
+    owner: str, repo: str, pr_number: int, per_page: int = 30
+) -> list:
     """List the files changed in a pull request."""
     return _request(
-        "GET", f"/repos/{owner}/{repo}/pulls/{pr_number}/files", params={"per_page": per_page}
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/files",
+        params={"per_page": per_page},
     )
 
 
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool()
 def search_code(query: str, per_page: int = 10) -> dict:

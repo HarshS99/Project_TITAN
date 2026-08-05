@@ -10,12 +10,10 @@ import json
 import re
 from typing import Any
 
+from camel.agents import ChatAgent
 from loguru import logger
 
-from camel.agents import ChatAgent
-from camel.types import ModelPlatformType
-from backend.ai.model_factory import planner_model, get_model_by_provider
-
+from backend.ai.model_factory import get_model_by_provider, planner_model
 
 PLANNER_SYSTEM_MESSAGE = """You are TITAN's Master Planner — a world-class software architect and AI project manager.
 
@@ -30,6 +28,9 @@ Your job is to take a user's project request and break it down into a precise, o
 6. Assign each task to one agent: planner, code, testing, docs, terminal, github, filesystem.
 7. MAXIMUM 30 tasks total. Be concise. Combine related tasks.
 8. ALWAYS complete the full JSON including ALL tasks before stopping.
+9. DO NOT add tasks to start persistent servers (e.g. uvicorn, npm start, python run.py). Only install dependencies, prepare the codebase, and push to Git.
+10. File paths are already relative to the project root. DO NOT include the project name as a root folder in file paths (e.g. use 'src/main.py' instead of 'project-name/src/main.py').
+11. ALWAYS generate '.vscode/tasks.json' and '.vscode/launch.json' configured to automatically install dependencies and start the app when VS Code opens (using "runOn": "folderOpen" in tasks.json).
 
 ## Output Format (strict JSON)
 {
@@ -41,10 +42,10 @@ Your job is to take a user's project request and break it down into a precise, o
     {
       "id": 1,
       "type": "create_folder",
-      "title": "Create project root",
-      "description": "Create the main project directory structure",
+      "title": "Create src directory",
+      "description": "Create the main source directory structure",
       "agent": "filesystem",
-      "file_path": "project-name/",
+      "file_path": "src/",
       "command": null,
       "content": null
     }
@@ -54,7 +55,6 @@ Your job is to take a user's project request and break it down into a precise, o
 
 
 class PlannerAgent:
-
     """
     Breaks down a user project request into structured, executable tasks.
     Powered by Groq Llama 3.3 70B via CAMEL AI.
@@ -63,14 +63,16 @@ class PlannerAgent:
     def __init__(self, provider: str = None):
         """Initialize the planner agent with an optional provider fallback."""
         model = get_model_by_provider(provider) if provider else planner_model()
-        
+
         # We use a custom ChatAgent setup because the default JSON parser was
         # returning JSON when it received very large prompts.
         self._agent = ChatAgent(
             system_message=PLANNER_SYSTEM_MESSAGE,
             model=model,
         )
-        logger.info(f"PlannerAgent initialized (Provider: {provider or 'default groq'})")
+        logger.info(
+            f"PlannerAgent initialized (Provider: {provider or 'default groq'})"
+        )
 
     def plan(self, user_request: str, extra_context: str = "") -> dict[str, Any]:
         """
@@ -105,7 +107,8 @@ Return ONLY the JSON object. No explanation, no markdown fences.
         # Mistral and Gemini sometimes return malformed JSON — Groq is the best
         # structured output model. We rotate across Groq models only if rate limited.
         groq_models = ["llama-3.3-70b-versatile", "llama3-8b-8192", "gemma2-9b-it"]
-        from backend.ai.model_factory import get_groq_model, get_gemini_model
+        from backend.ai.model_factory import get_gemini_model, get_groq_model
+
         fallback_models = [
             get_groq_model("llama-3.3-70b-versatile"),
             get_gemini_model("gemini-2.0-flash"),
@@ -115,19 +118,31 @@ Return ONLY the JSON object. No explanation, no markdown fences.
         plan = {}
         for i, model in enumerate(fallback_models):
             try:
-                self._agent._model_backend = model
-                self._agent.reset()
+                # Create a fresh agent for each fallback to avoid mutating internals
+                self._agent = ChatAgent(
+                    system_message=PLANNER_SYSTEM_MESSAGE,
+                    model=model,
+                )
                 response = self._agent.step(prompt)
                 raw = response.msgs[0].content.strip()
                 plan = self._extract_json(raw)
                 if plan.get("tasks"):  # Got a valid plan with tasks
                     break
                 else:
-                    logger.warning(f"Planner got empty tasks from model {i+1}, trying next...")
+                    logger.warning(
+                        f"Planner got empty tasks from model {i + 1}, trying next..."
+                    )
             except Exception as exc:
                 err = str(exc).lower()
-                if "429" in err or "rate_limit" in err or "quota" in err or "resource_exhausted" in err:
-                    logger.warning(f"Planner rate limited on model {i+1}, trying next...")
+                if (
+                    "429" in err
+                    or "rate_limit" in err
+                    or "quota" in err
+                    or "resource_exhausted" in err
+                ):
+                    logger.warning(
+                        f"Planner rate limited on model {i + 1}, trying next..."
+                    )
                     continue
                 else:
                     raise
@@ -135,7 +150,6 @@ Return ONLY the JSON object. No explanation, no markdown fences.
         task_count = len(plan.get("tasks", []))
         logger.success(f"Plan created: {plan.get('project_name')} — {task_count} tasks")
         return plan
-
 
     def _extract_json(self, text: str) -> dict:
         """Robustly extract JSON from model response, including truncated responses."""
@@ -164,7 +178,9 @@ Return ONLY the JSON object. No explanation, no markdown fences.
             fixed = self._repair_truncated_json(cleaned)
             result = json.loads(fixed)
             if result.get("tasks"):
-                logger.warning(f"Used truncated-JSON repair — recovered {len(result['tasks'])} tasks")
+                logger.warning(
+                    f"Used truncated-JSON repair — recovered {len(result['tasks'])} tasks"
+                )
                 return result
         except Exception:
             pass
@@ -175,17 +191,24 @@ Return ONLY the JSON object. No explanation, no markdown fences.
             # Find the partial object (has project_name but no tasks)
             partial = cleaned.rstrip().rstrip(",")
             # Ensure it ends at a proper boundary
-            if partial.endswith('"') or partial[-1].isalnum() or partial[-1] in ']}':
+            if partial.endswith('"') or partial[-1].isalnum() or partial[-1] in "]}":
                 completed = partial + ', "tasks": [], "total_tasks": 0}'
                 result = json.loads(completed)
-                if result.get("project_name") and result["project_name"] != "unnamed-project":
-                    logger.warning("JSON was truncated before tasks — will re-plan with next model")
+                if (
+                    result.get("project_name")
+                    and result["project_name"] != "unnamed-project"
+                ):
+                    logger.warning(
+                        "JSON was truncated before tasks — will re-plan with next model"
+                    )
                     # Return empty tasks so the caller retries with next model
                     return result
         except Exception:
             pass
 
-        logger.error(f"Failed to parse planner JSON response. Raw (first 500 chars): {text[:500]}")
+        logger.error(
+            f"Failed to parse planner JSON response. Raw (first 500 chars): {text[:500]}"
+        )
         return {
             "project_name": "unnamed-project",
             "project_description": "Generated project",
@@ -249,4 +272,3 @@ Return ONLY the JSON object. No explanation, no markdown fences.
 
     def reset(self):
         self._agent.reset()
-

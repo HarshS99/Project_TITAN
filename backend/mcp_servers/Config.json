@@ -3,11 +3,12 @@
         "github": {
             "command": "python3",
             "args": [
-                "/Users/harshsingh/Desktop/GitHub_Profile_Analyzer/github_mcp_server.py"
+                "/Users/harshsingh/Desktop/Project_TITAN/backend/mcp_servers/github_mcp_server.py"
             ],
             "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+                "GITHUB_PERSONAL_ACCESS_TOKEN": "<YOUR_TOKEN>"
             }
         }
     }
 }
+

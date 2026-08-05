@@ -8,15 +8,15 @@ Creates CAMEL ChatAgent models from the three available API providers:
 
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
-from backend.config import GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY
+
+from backend.config import GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY
 
 
 def get_groq_model(model: str = "llama-3.3-70b-versatile"):
     """Fast Groq LLaMA — best for planning, testing, structured JSON output."""
     return ModelFactory.create(
-        ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
+        ModelPlatformType.GROQ,
         model_type=model,
-        url="https://api.groq.com/openai/v1",
         api_key=GROQ_API_KEY,
     )
 
@@ -26,6 +26,7 @@ def get_gemini_model(model: str = "gemini-2.0-flash"):
     return ModelFactory.create(
         ModelPlatformType.GEMINI,
         model_type=model,
+        api_key=GEMINI_API_KEY or None,
     )
 
 
@@ -41,6 +42,7 @@ def get_mistral_model(model: str = "mistral-small-latest"):
 
 # ── Agent → Model Assignments ────────────────────────────────────────────────
 # Each agent uses the provider best suited to its task
+
 
 def planner_model():
     """Groq LLaMA — fast structured JSON output for planning."""
@@ -71,6 +73,6 @@ def get_model_by_provider(provider: str):
         return get_gemini_model()
     elif provider == "mistral":
         return get_mistral_model()
-    
+
     # Fallback default
     return get_groq_model()

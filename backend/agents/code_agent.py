@@ -7,13 +7,10 @@ clean, complete, well-commented code.
 
 from __future__ import annotations
 
-import os
-
 from camel.agents import ChatAgent
-from camel.types import ModelPlatformType
 from loguru import logger
-from backend.ai.model_factory import code_model, get_model_by_provider
 
+from backend.ai.model_factory import code_model, get_model_by_provider
 
 CODE_SYSTEM_MESSAGE = """You are TITAN's Senior Software Engineer — an elite developer who writes production-quality code.
 
@@ -97,7 +94,11 @@ Return ONLY the raw file content, nothing else.
         # Strip accidental markdown fences
         if code.startswith("```"):
             lines = code.split("\n")
-            code = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+            code = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip() == "```"
+                else "\n".join(lines[1:])
+            )
 
         logger.success(f"CodeAgent wrote {len(code)} chars → {file_path}")
         return code
@@ -139,7 +140,11 @@ Fix the code. Return ONLY the complete fixed file content.
 
         if fixed.startswith("```"):
             lines = fixed.split("\n")
-            fixed = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+            fixed = (
+                "\n".join(lines[1:-1])
+                if lines[-1].strip() == "```"
+                else "\n".join(lines[1:])
+            )
 
         return fixed
 
