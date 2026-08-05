@@ -25,7 +25,7 @@ def main():
     try:
         subprocess.run(["git", "add", "."], check=True)
         subprocess.run(["git", "commit", "-m", "Project completed: Added VS Code screenshot"], check=True)
-        subprocess.run(["git", "push"], check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], check=True)
         print("Successfully pushed to GitHub.")
     except subprocess.CalledProcessError as e:
         print(f"Git push failed. Ensure you have the right permissions and there's something to commit: {e}")
@@ -56,7 +56,7 @@ def main():
     try:
         subprocess.run(["git", "add", "screenshots/github_screenshot.png"], check=True)
         subprocess.run(["git", "commit", "-m", "Added GitHub repo screenshot"], check=True)
-        subprocess.run(["git", "push"], check=True)
+        subprocess.run(["git", "push", "-u", "origin", "HEAD"], check=True)
         print("Successfully pushed final screenshot.")
     except subprocess.CalledProcessError as e:
         print(f"Final Git push failed: {e}")
