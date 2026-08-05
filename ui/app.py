@@ -780,30 +780,42 @@ with col_main:
   <div style='font-size:0.82rem;color:#7B79A0;'>Taking screenshots & posting to LinkedIn automatically…</div>
 </div>""", unsafe_allow_html=True)
 
-            with st.spinner("📸 Taking VS Code & GitHub screenshots and posting to LinkedIn…"):
+            with st.spinner("🎨 Generating project card & posting to LinkedIn…"):
                 try:
                     import complete_project
+                    import importlib
+                    importlib.reload(complete_project)  # pick up any code changes
                     gh_url = result.get("github_url", "https://github.com/HarshS99/Project_TITAN")
-                    project_nm = result.get("project_name", "Project TITAN")
-                    comp = complete_project.run(project_name=project_nm, github_url=gh_url)
+                    project_nm  = result.get("project_name", "My Project")
+                    project_desc = result.get("project_description", "")
+                    tech_stack   = result.get("tech_stack", [])
+                    num_files    = len(result.get("files_created", []))
+                    num_tasks    = result.get("total_tasks", 0)
+                    comp = complete_project.run(
+                        project_name=project_nm,
+                        description=project_desc,
+                        tech_stack=tech_stack,
+                        github_url=gh_url,
+                        num_files=num_files,
+                        num_tasks=num_tasks,
+                    )
                 except Exception as e:
                     comp = {"errors": [str(e)], "vscode_screenshot": None,
-                            "github_screenshot": None, "linkedin_post_url": None}
+                            "github_screenshot": None, "linkedin_post_url": None,
+                            "project_card": None}
 
-            # Show screenshots side-by-side
             ss_col1, ss_col2 = st.columns(2)
+            card_path = comp.get("project_card")
             with ss_col1:
-                vss = comp.get("vscode_screenshot")
-                if vss and os.path.exists(vss):
-                    st.image(vss, caption="📺 VS Code — Project Open", use_container_width=True)
+                if card_path and os.path.exists(card_path):
+                    st.image(card_path, caption="🎨 Project Card — LinkedIn Cover", use_container_width=True)
                 else:
-                    st.info("VS Code screenshot unavailable\n(run from your terminal for display access)")
+                    st.info("Project card unavailable")
             with ss_col2:
-                gss = comp.get("github_screenshot")
-                if gss and os.path.exists(gss):
-                    st.image(gss, caption="🐙 GitHub — Repository Live", use_container_width=True)
+                if card_path and os.path.exists(card_path):
+                    st.image(card_path, caption="🚀 Built 100% by AI — Project TITAN", use_container_width=True)
                 else:
-                    st.info("GitHub screenshot unavailable")
+                    st.info("Project card unavailable")
 
             # LinkedIn result
             li_url = comp.get("linkedin_post_url")
