@@ -727,20 +727,25 @@ with col_main:
             gh_btn = f'<a class="gh-btn" href="{gh_url}" target="_blank">⬡ View on GitHub</a>' if gh_url else ""
             gh_pill = "<span class='stat-pill' style='color:var(--success);border-color:rgba(34,197,94,0.25)'>✓ Pushed to GitHub</span>" if gh_url else ""
 
+            html_parts = [
+                f'<div class="result-title">✅ Build Complete — {result.get("project_name", "Project")}</div>',
+                f'<div class="result-meta">Finished in {duration:.1f}s</div>',
+                '<div class="stat-pills">',
+                f'<span class="stat-pill">📋 {tasks} tasks</span>',
+                f'<span class="stat-pill">📁 {len(files)} files</span>'
+            ]
+            if private_repo:
+                html_parts.append("<span class='stat-pill'>🔒 Private</span>")
+            if gh_url:
+                html_parts.append("<span class='stat-pill' style='color:var(--success);border-color:rgba(34,197,94,0.25)'>✓ Pushed to GitHub</span>")
+            html_parts.append("</div>")
+            if gh_url:
+                html_parts.append(f'<a class="gh-btn" href="{gh_url}" target="_blank">⬡ View on GitHub</a>')
+                
+            inner_html = "".join(html_parts)
+            
             st.markdown(
-                f"""
-<div class="result-card success">
-    <div class="result-title">✅ Build Complete — {result.get("project_name", "Project")}</div>
-    <div class="result-meta">Finished in {duration:.1f}s</div>
-    <div class="stat-pills">
-        <span class="stat-pill">📋 {tasks} tasks</span>
-        <span class="stat-pill">📁 {len(files)} files</span>
-        {"<span class='stat-pill'>🔒 Private</span>" if private_repo else ""}
-        {gh_pill}
-    </div>
-    {gh_btn}
-</div>
-""",
+                f'<div class="result-card success">{inner_html}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -758,6 +763,27 @@ with col_main:
                             st.warning(err)
                     else:
                         st.markdown('<div style="font-size:0.8rem;font-weight:700;color:var(--success);margin-top:0.5rem;">✓ No warnings</div>', unsafe_allow_html=True)
+
+            st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+
+            # Automated screenshot and push on completion
+            with st.spinner("Taking screenshots and pushing to GitHub..."):
+                import subprocess
+                import os
+                try:
+                    subprocess.run(["python3", "complete_project.py"], check=True)
+                    st.success("Screenshots captured and pushed to GitHub!")
+                    
+                    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if os.path.exists("screenshots/vscode_screenshot.png"):
+                            st.image("screenshots/vscode_screenshot.png", caption="VS Code Screenshot")
+                    with col2:
+                        if os.path.exists("screenshots/github_screenshot.png"):
+                            st.image("screenshots/github_screenshot.png", caption="GitHub Repository Screenshot")
+                except Exception as e:
+                    st.error(f"Could not complete screenshot automation: {e}")
 
             st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
             if st.button("⚡  Build another project"):

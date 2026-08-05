@@ -6,6 +6,14 @@ from camel.toolkits.screenshot_toolkit import ScreenshotToolkit
 
 def main():
     print("Initializing project completion sequence...")
+    
+    # Load environment variables (e.g., LINKEDIN_ACCESS_TOKEN)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+        
     toolkit = ScreenshotToolkit()
     os.makedirs('screenshots', exist_ok=True)
     
@@ -62,6 +70,17 @@ def main():
         print(f"Final Git push failed: {e}")
     except Exception as e:
         print(f"Error during final git push: {e}")
+
+    # 6. Post to LinkedIn
+    print("6. Creating a LinkedIn post about the new project...")
+    try:
+        from camel.toolkits.linkedin_toolkit import LinkedInToolkit
+        linkedin = LinkedInToolkit()
+        post_content = "Just shipped a new project using Project TITAN – an autonomous AI software engineering system! 🚀 Built completely by AI agents and pushed to GitHub automatically.\n\n#AI #Coding #Automation #ProjectTITAN"
+        result = linkedin.create_post(text=post_content)
+        print(f"Successfully posted to LinkedIn! Result: {result}")
+    except Exception as e:
+        print(f"Error posting to LinkedIn: {e}")
 
     print("\nProject completion sequence finished!")
 

@@ -58,7 +58,11 @@ class FilesystemController:
 
     def create_file(self, relative_path: str, content: str = "") -> Path:
         """Create a file with optional initial content."""
+        if not relative_path or relative_path.strip() in (".", "./", "/", ""):
+            raise ValueError(f"Invalid file path for creation: '{relative_path}'")
         path = self.resolve(relative_path)
+        if path.exists() and path.is_dir():
+            raise ValueError(f"Cannot create file at '{relative_path}' because it is a directory.")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         logger.info(f"📄 Created file: {relative_path} ({len(content)} chars)")
