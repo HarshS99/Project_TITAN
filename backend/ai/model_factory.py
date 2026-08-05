@@ -50,8 +50,8 @@ def planner_model():
 
 
 def code_model():
-    """Gemini 2.0 Flash — large context, excellent code generation."""
-    return get_gemini_model("gemini-2.0-flash")
+    """Groq LLaMA — temporarily used for code generation due to Gemini API limits."""
+    return get_groq_model("llama-3.3-70b-versatile")
 
 
 def testing_model():

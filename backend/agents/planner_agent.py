@@ -31,6 +31,8 @@ Your job is to take a user's project request and break it down into a precise, o
 9. DO NOT add tasks to start persistent servers (e.g. uvicorn, npm start, python run.py). Only install dependencies, prepare the codebase, and push to Git.
 10. File paths are already relative to the project root. DO NOT include the project name as a root folder in file paths (e.g. use 'src/main.py' instead of 'project-name/src/main.py').
 11. ALWAYS generate '.vscode/tasks.json' and '.vscode/launch.json' configured to automatically install dependencies and start the app when VS Code opens (using "runOn": "folderOpen" in tasks.json).
+12. If the project uses plain JavaScript (not TypeScript), all backend files MUST use .js extension and plain JS syntax. NEVER use TypeScript syntax (type annotations, interfaces, type imports) in .js files. Only use .ts extensions if the user explicitly requests TypeScript.
+13. When generating run_command tasks for Node.js, ensure the package.json has "type": "module" if the code uses ES module imports (import/export), OR use CommonJS (require/module.exports) syntax — never mix the two.
 
 ## Output Format (strict JSON)
 {

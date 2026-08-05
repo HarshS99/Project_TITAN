@@ -3,10 +3,15 @@ Project TITAN — Dashboard
 Dark premium enterprise UI.
 """
 
+import os
+import sys
 import time
 
 import requests
 import streamlit as st
+
+# Allow importing complete_project from project root
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ── Page Config ────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -766,24 +771,66 @@ with col_main:
 
             st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
-            # Automated screenshot and push on completion
-            with st.spinner("Taking screenshots and pushing to GitHub..."):
-                import subprocess
-                import os
+            # ── Post-build automation: screenshots + GitHub push + LinkedIn ──
+            st.markdown("""
+<div style='background:linear-gradient(135deg,#1A1A2E,#13131E);
+            border:1px solid rgba(124,58,237,0.3);
+            border-radius:14px;padding:1.5rem 2rem;margin:1rem 0;'>
+  <div style='font-size:1rem;font-weight:700;color:#A78BFA;margin-bottom:0.5rem;'>📸 Project Completion Snapshot</div>
+  <div style='font-size:0.82rem;color:#7B79A0;'>Taking screenshots & posting to LinkedIn automatically…</div>
+</div>""", unsafe_allow_html=True)
+
+            with st.spinner("📸 Taking VS Code & GitHub screenshots and posting to LinkedIn…"):
                 try:
-                    subprocess.run(["python3", "complete_project.py"], check=True)
-                    st.success("Screenshots captured and pushed to GitHub!")
-                    
-                    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if os.path.exists("screenshots/vscode_screenshot.png"):
-                            st.image("screenshots/vscode_screenshot.png", caption="VS Code Screenshot")
-                    with col2:
-                        if os.path.exists("screenshots/github_screenshot.png"):
-                            st.image("screenshots/github_screenshot.png", caption="GitHub Repository Screenshot")
+                    import complete_project
+                    gh_url = result.get("github_url", "https://github.com/HarshS99/Project_TITAN")
+                    project_nm = result.get("project_name", "Project TITAN")
+                    comp = complete_project.run(project_name=project_nm, github_url=gh_url)
                 except Exception as e:
-                    st.error(f"Could not complete screenshot automation: {e}")
+                    comp = {"errors": [str(e)], "vscode_screenshot": None,
+                            "github_screenshot": None, "linkedin_post_url": None}
+
+            # Show screenshots side-by-side
+            ss_col1, ss_col2 = st.columns(2)
+            with ss_col1:
+                vss = comp.get("vscode_screenshot")
+                if vss and os.path.exists(vss):
+                    st.image(vss, caption="📺 VS Code — Project Open", use_container_width=True)
+                else:
+                    st.info("VS Code screenshot unavailable\n(run from your terminal for display access)")
+            with ss_col2:
+                gss = comp.get("github_screenshot")
+                if gss and os.path.exists(gss):
+                    st.image(gss, caption="🐙 GitHub — Repository Live", use_container_width=True)
+                else:
+                    st.info("GitHub screenshot unavailable")
+
+            # LinkedIn result
+            li_url = comp.get("linkedin_post_url")
+            if li_url:
+                st.markdown(f"""
+<div style='background:linear-gradient(135deg,#0d3349,#0a2233);
+            border:1px solid rgba(0,119,181,0.4);
+            border-radius:12px;padding:1.2rem 1.8rem;margin:1rem 0;text-align:center;'>
+  <div style='font-size:1rem;font-weight:700;color:#00A0DC;margin-bottom:0.5rem;'>🔗 LinkedIn Post Published!</div>
+  <a href='{li_url}' target='_blank'
+     style='color:#7dd3fc;font-size:0.85rem;font-weight:600;word-break:break-all;'>{li_url}</a>
+</div>""", unsafe_allow_html=True)
+            else:
+                if not (os.getenv("LINKEDIN_ACCESS_TOKEN", "your_linkedin_token_here") == "your_linkedin_token_here"):
+                    errs = comp.get("errors", [])
+                    li_err = next((e for e in errs if "LinkedIn" in e or "linkedin" in e), None)
+                    if li_err:
+                        st.warning(f"LinkedIn: {li_err}")
+
+            # Git push status
+            if comp.get("github_pushed"):
+                st.success("✅ Code pushed to GitHub!")
+
+            # Non-critical errors
+            other_errs = [e for e in comp.get("errors", []) if "LinkedIn" not in e]
+            for err in other_errs:
+                st.warning(err)
 
             st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
             if st.button("⚡  Build another project"):

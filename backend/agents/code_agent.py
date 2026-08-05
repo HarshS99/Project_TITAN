@@ -24,6 +24,12 @@ CODE_SYSTEM_MESSAGE = """You are TITAN's Senior Software Engineer — an elite d
 7. If writing Python: use type hints, f-strings, pathlib for paths.
 8. If writing JavaScript/TypeScript: use modern ES6+, async/await.
 9. If writing HTML/CSS: write clean, semantic, responsive code.
+10. CRITICAL — If the file extension is .js, NEVER use TypeScript syntax. This means:
+    - NO type annotations (e.g. `req: Request` is FORBIDDEN in .js files)
+    - NO TypeScript imports like `import { Request, Response } from 'express'`
+    - NO interface or type declarations
+    - Use plain JavaScript: `app.get('/route', async (req, res) => { ... })`
+    - TypeScript syntax is ONLY allowed in .ts files.
 
 ## Output
 Return ONLY the file content. No explanation. No markdown. Just the raw code.
@@ -42,7 +48,7 @@ class CodeAgent:
             system_message=CODE_SYSTEM_MESSAGE,
             model=model,
         )
-        logger.info(f"CodeAgent initialized (Provider: {provider or 'default gemini'})")
+        logger.info(f"CodeAgent initialized (Provider: {provider or 'default groq'})")
 
     def write_code(
         self,
