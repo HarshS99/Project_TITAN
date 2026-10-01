@@ -808,12 +808,12 @@ with col_main:
             card_path = comp.get("project_card")
             with ss_col1:
                 if card_path and os.path.exists(card_path):
-                    st.image(card_path, caption="🎨 Project Card — LinkedIn Cover", use_container_width=True)
+                    st.image(card_path, caption="🎨 Project Card — LinkedIn Cover", width='stretch')
                 else:
                     st.info("Project card unavailable")
             with ss_col2:
                 if card_path and os.path.exists(card_path):
-                    st.image(card_path, caption="🚀 Built 100% by AI — Project TITAN", use_container_width=True)
+                    st.image(card_path, caption="🚀 Built 100% by AI — Project TITAN", width='stretch')
                 else:
                     st.info("Project card unavailable")
 

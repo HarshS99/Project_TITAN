@@ -94,6 +94,8 @@ class Orchestrator:
                     or "rate_limit" in err_str
                     or "quota" in err_str
                     or "resource_exhausted" in err_str
+                    or "timeout" in err_str
+                    or isinstance(exc, (TimeoutError, ConnectionError))
                 ):
                     # Re-bind the function to a fresh agent initialized with the next provider
                     agent_instance = getattr(func, "__self__", None)
@@ -101,7 +103,7 @@ class Orchestrator:
                         func_name = func.__name__
 
                         if isinstance(agent_instance, PlannerAgent):
-                            providers = ["groq", "gemini", "mistral"]
+                            providers = ["gemini", "groq", "gemini"]
                             next_provider = providers[(attempt + 1) % 3]
                             logger.warning(
                                 f"PlannerAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
@@ -109,7 +111,7 @@ class Orchestrator:
                             self._planner = PlannerAgent(provider=next_provider)
                             func = getattr(self._planner, func_name)
                         elif isinstance(agent_instance, CodeAgent):
-                            providers = ["groq", "gemini", "mistral"]
+                            providers = ["gemini", "groq", "gemini"]
                             next_provider = providers[(attempt + 1) % 3]
                             logger.warning(
                                 f"CodeAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
@@ -117,7 +119,7 @@ class Orchestrator:
                             self._coder = CodeAgent(provider=next_provider)
                             func = getattr(self._coder, func_name)
                         elif isinstance(agent_instance, DocsAgent):
-                            providers = ["mistral", "gemini", "groq"]
+                            providers = ["gemini", "groq", "gemini"]
                             next_provider = providers[(attempt + 1) % 3]
                             logger.warning(
                                 f"DocsAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
@@ -125,7 +127,7 @@ class Orchestrator:
                             self._docs = DocsAgent(provider=next_provider)
                             func = getattr(self._docs, func_name)
                         elif isinstance(agent_instance, TestingAgent):
-                            providers = ["gemini", "groq", "mistral"]
+                            providers = ["gemini", "groq", "gemini"]
                             next_provider = providers[(attempt + 1) % 3]
                             logger.warning(
                                 f"TestingAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
@@ -154,11 +156,11 @@ class Orchestrator:
         logger.info("Orchestrator initialized")
 
     def _init_agents(self):
-        """Initialize all agents fresh for a new build, distributing the load across 3 APIs."""
-        self._planner = PlannerAgent(provider="groq")
-        self._coder = CodeAgent(provider="groq")
+        """Initialize all agents fresh for a new build, distributing the load across APIs."""
+        self._planner = PlannerAgent(provider="gemini")
+        self._coder = CodeAgent(provider="gemini")
         self._tester = TestingAgent(provider="gemini")
-        self._docs = DocsAgent(provider="mistral")
+        self._docs = DocsAgent(provider="gemini")
 
     def _emit(
         self,
@@ -365,42 +367,23 @@ class Orchestrator:
 
         # ── Phase 4: Generate docs if not already done ────────
         step = len(tasks) + 1
-        if "README.md" not in files_created:
-            self._emit(
-                step,
-                total,
-                "docs",
-                "Generating README",
-                "Writing professional README.md",
-            )
-            readme = self._call_with_retry(
-                self._docs.generate_readme,
-                project_name=project_name,
-                description=description,
-                tech_stack=tech_stack,
-                features=self._extract_features(tasks),
-                github_username=github.username,
-                repo_name=project_name,
-            )
-            fs.write_file("README.md", readme)
-            files_created.append("README.md")
-
-        if ".gitignore" not in files_created:
-            gitignore = self._call_with_retry(self._docs.generate_gitignore, tech_stack)
-            fs.write_file(".gitignore", gitignore)
-            files_created.append(".gitignore")
-
-        # ── Generate VS Code tasks for auto-install and auto-run ────────
         self._emit(
             step,
             total,
             "docs",
-            "Generating VS Code Tasks",
-            "Configuring auto-install and auto-run for VS Code",
+            "Generating Documentation",
+            "Writing README, gitignore, and config files...",
         )
-        tasks_json = self._call_with_retry(self._docs.generate_vscode_tasks, tech_stack)
-        fs.write_file(".vscode/tasks.json", tasks_json)
-        files_created.append(".vscode/tasks.json")
+        try:
+            from backend.agents.docs_agent import DocsAgent
+            from backend.config import AGENT_MODELS
+            provider = AGENT_MODELS.get("docs", {}).get("provider", "gemini")
+            docs_agent = DocsAgent(project_path=str(fs.root), provider=provider)
+            docs_summary = self._call_with_retry(docs_agent.run)
+            logger.info(f"DocsAgent summary: {docs_summary}")
+        except Exception as e:
+            errors.append(f"DocsAgent failed: {e}")
+            logger.error(f"DocsAgent error: {e}")
 
         # ── Phase 5: GitHub push (via official GitHub MCP Server) ─────────
         github_url = ""

@@ -1,6 +1,6 @@
 """
 Project TITAN — Code Agent
-Uses Groq Llama 3.3 70B to write production-quality code for any file.
+Uses Gemini 3.8 Flash (with Groq fallback) to write production-quality code for any file.
 Receives task context (file path, description, tech stack) and outputs
 clean, complete, well-commented code.
 """
@@ -10,7 +10,12 @@ from __future__ import annotations
 from camel.agents import ChatAgent
 from loguru import logger
 
-from backend.ai.model_factory import code_model, get_model_by_provider
+from backend.ai.model_factory import (
+    code_model,
+    get_gemini_model,
+    get_groq_model,
+    get_model_by_provider,
+)
 
 CODE_SYSTEM_MESSAGE = """You are TITAN's Senior Software Engineer — an elite developer who writes production-quality code.
 
@@ -35,21 +40,81 @@ CODE_SYSTEM_MESSAGE = """You are TITAN's Senior Software Engineer — an elite d
 Return ONLY the file content. No explanation. No markdown. Just the raw code.
 """
 
+# Fallback ladder: tried in order when the primary model fails.
+# Each entry is (provider, model_name).
+FALLBACK_MODELS = [
+    ("gemini", "gemini-3.8-flash"),
+    ("groq",   "llama3-70b-8192"),
+    ("groq",   "llama-3.1-8b-instant"),
+]
+
+
+def _strip_fences(code: str) -> str:
+    """Remove accidental markdown code fences from a response."""
+    if code.startswith("```"):
+        lines = code.split("\n")
+        code = (
+            "\n".join(lines[1:-1])
+            if lines[-1].strip() == "```"
+            else "\n".join(lines[1:])
+        )
+    return code
+
+
+def _make_agent(provider: str, model_name: str) -> ChatAgent:
+    """Build a ChatAgent for the given provider/model."""
+    if provider == "gemini":
+        model = get_gemini_model(model_name)
+    else:
+        model = get_groq_model(model_name)
+    return ChatAgent(system_message=CODE_SYSTEM_MESSAGE, model=model)
+
 
 class CodeAgent:
     """
     Writes complete, production-ready code files.
-    Powered by Groq Llama 3.3 70B via CAMEL AI.
+    Powered by Gemini 3.8 Flash (with Groq fallback) via CAMEL AI.
     """
 
-    def __init__(self, provider: str = None):
-        model = get_model_by_provider(provider) if provider else code_model()
+    def __init__(self, provider: str | None = None):
+        self._provider = provider
         self._agent = ChatAgent(
             system_message=CODE_SYSTEM_MESSAGE,
-            model=model,
+            model=get_model_by_provider(provider) if provider else code_model(),
         )
-        logger.info(f"CodeAgent initialized (Provider: {provider or 'default groq'})")
+        logger.info(f"CodeAgent initialized (Provider: {provider or 'default gemini'})")
 
+    # ------------------------------------------------------------------
+    # Internal: run prompt with automatic model fallback
+    # ------------------------------------------------------------------
+    def _step_with_fallback(self, prompt: str) -> str:
+        """
+        Try the primary agent first, then walk through FALLBACK_MODELS on error.
+        Always resets the agent before each attempt to avoid token accumulation.
+        """
+        self._agent.reset()
+        try:
+            response = self._agent.step(prompt)
+            return response.msgs[0].content.strip()
+        except Exception as primary_err:
+            logger.warning(f"CodeAgent primary model failed: {primary_err}")
+
+        for provider, model_name in FALLBACK_MODELS:
+            try:
+                logger.info(f"CodeAgent trying fallback: {provider}:{model_name}")
+                fallback_agent = _make_agent(provider, model_name)
+                response = fallback_agent.step(prompt)
+                return response.msgs[0].content.strip()
+            except Exception as err:
+                logger.warning(f"CodeAgent fallback {provider}:{model_name} failed: {err}")
+
+        raise RuntimeError(
+            "CodeAgent: all models (primary + fallbacks) failed to produce code."
+        )
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def write_code(
         self,
         file_path: str,
@@ -92,20 +157,7 @@ Write the complete content for: {file_path}
 Return ONLY the raw file content, nothing else.
 """
         logger.info(f"CodeAgent writing: {file_path}")
-        # Reset history before each task to prevent token accumulation (429/413 errors)
-        self._agent.reset()
-        response = self._agent.step(prompt)
-        code = response.msgs[0].content.strip()
-
-        # Strip accidental markdown fences
-        if code.startswith("```"):
-            lines = code.split("\n")
-            code = (
-                "\n".join(lines[1:-1])
-                if lines[-1].strip() == "```"
-                else "\n".join(lines[1:])
-            )
-
+        code = _strip_fences(self._step_with_fallback(prompt))
         logger.success(f"CodeAgent wrote {len(code)} chars → {file_path}")
         return code
 
@@ -141,17 +193,8 @@ Current Code:
 Fix the code. Return ONLY the complete fixed file content.
 """
         logger.info(f"CodeAgent fixing error in: {file_path}")
-        response = self._agent.step(prompt)
-        fixed = response.msgs[0].content.strip()
-
-        if fixed.startswith("```"):
-            lines = fixed.split("\n")
-            fixed = (
-                "\n".join(lines[1:-1])
-                if lines[-1].strip() == "```"
-                else "\n".join(lines[1:])
-            )
-
+        fixed = _strip_fences(self._step_with_fallback(prompt))
+        logger.success(f"CodeAgent fixed {len(fixed)} chars → {file_path}")
         return fixed
 
     def reset(self):

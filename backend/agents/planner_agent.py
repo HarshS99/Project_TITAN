@@ -1,94 +1,225 @@
 """
 Project TITAN — Planner Agent
-Uses Groq Llama 3.3 70B to decompose a user request (e.g. "Build a Netflix Clone")
+Uses CAMEL's ChatAgent to decompose a user request (e.g. "Build a Netflix Clone")
 into an ordered list of structured tasks that TITAN will execute.
+
+Unlike a single-shot "ask for JSON and hope" prompt, this agent:
+- gets a schema-enforced structured output (no hand-rolled regex JSON repair), and
+- has a validate_plan tool it can call on its own draft to catch structural
+  mistakes (duplicate ids, missing required files, banned commands, mixed
+  JS/TS) and fix them before returning a final answer.
 """
 
 from __future__ import annotations
 
 import json
-import re
-from typing import Any
+from typing import Any, List, Literal, Optional
 
 from camel.agents import ChatAgent
+from camel.toolkits import FunctionTool
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from backend.ai.model_factory import get_model_by_provider, planner_model
 
+# ---------------------------------------------------------------------------
+# Schema — this IS the contract. No more regex-parsing model output against
+# rules described only in prose; the model is constrained to this shape.
+# ---------------------------------------------------------------------------
+
+TaskType = Literal[
+    "create_folder",
+    "create_file",
+    "write_code",
+    "run_command",
+    "git_init",
+    "git_push",
+    "generate_readme",
+    "generate_gitignore",
+    "open_vscode",
+]
+
+AgentName = Literal["planner", "code", "testing", "docs", "terminal", "github", "filesystem"]
+
+# Commands that would start a persistent/blocking server — forbidden per rule 9.
+_BANNED_COMMAND_FRAGMENTS = (
+    "uvicorn",
+    "npm start",
+    "npm run dev",
+    "python run.py",
+    "python app.py",
+    "flask run",
+    "node server.js",
+)
+
+
+class Task(BaseModel):
+    id: int
+    type: TaskType
+    title: str
+    description: str
+    agent: AgentName
+    file_path: Optional[str] = None
+    command: Optional[str] = None
+    content: Optional[str] = None
+
+
+class ProjectPlan(BaseModel):
+    project_name: str
+    project_description: str
+    tech_stack: List[str]
+    total_tasks: int
+    tasks: List[Task]
+
+
+class ValidationIssue(BaseModel):
+    task_id: Optional[int] = None
+    issue: str
+
+
+class ValidationResult(BaseModel):
+    valid: bool
+    issues: List[ValidationIssue] = Field(default_factory=list)
+
+
 PLANNER_SYSTEM_MESSAGE = """You are TITAN's Master Planner — a world-class software architect and AI project manager.
 
-Your job is to take a user's project request and break it down into a precise, ordered list of executable tasks.
+Your job is to take a user's project request and break it down into a precise, ordered list of executable tasks, matching the ProjectPlan schema you have been given.
 
 ## Rules
-1. Return ONLY valid JSON — no markdown, no explanation outside the JSON.
-2. Each task must be specific, actionable, and self-contained.
-3. Order tasks from foundation to deployment (dependencies first).
-4. Every task must have these exact fields: id, type, title, description, agent, file_path (if applicable), command (if applicable), content (if applicable).
-5. Use these task types ONLY: create_folder, create_file, write_code, run_command, git_init, git_push, generate_readme, generate_gitignore, open_vscode.
-6. Assign each task to one agent: planner, code, testing, docs, terminal, github, filesystem.
-7. MAXIMUM 30 tasks total. Be concise. Combine related tasks.
-8. ALWAYS complete the full JSON including ALL tasks before stopping.
-9. DO NOT add tasks to start persistent servers (e.g. uvicorn, npm start, python run.py). Only install dependencies, prepare the codebase, and push to Git.
-10. File paths are already relative to the project root. DO NOT include the project name as a root folder in file paths (e.g. use 'src/main.py' instead of 'project-name/src/main.py').
-11. ALWAYS generate '.vscode/tasks.json' and '.vscode/launch.json' configured to automatically install dependencies and start the app when VS Code opens (using "runOn": "folderOpen" in tasks.json).
-12. If the project uses plain JavaScript (not TypeScript), all backend files MUST use .js extension and plain JS syntax. NEVER use TypeScript syntax (type annotations, interfaces, type imports) in .js files. Only use .ts extensions if the user explicitly requests TypeScript.
-13. When generating run_command tasks for Node.js, ensure the package.json has "type": "module" if the code uses ES module imports (import/export), OR use CommonJS (require/module.exports) syntax — never mix the two.
+1. Each task must be specific, actionable, and self-contained.
+2. Order tasks from foundation to deployment (dependencies first).
+3. MAXIMUM 30 tasks total. Be concise. Combine related tasks.
+4. DO NOT add tasks to start persistent servers (e.g. uvicorn, npm start, python run.py).
+   Only install dependencies, prepare the codebase, and push to Git.
+5. File paths are already relative to the project root. DO NOT include the project name
+   as a root folder in file paths (e.g. use 'src/main.py', not 'project-name/src/main.py').
+6. ALWAYS generate '.vscode/tasks.json' and '.vscode/launch.json' configured to automatically
+   install dependencies and start the app when VS Code opens ("runOn": "folderOpen" in tasks.json).
+7. If the project uses plain JavaScript (not TypeScript), ALL backend files MUST use .js and
+   plain JS syntax — never TypeScript syntax in .js files. Only use .ts if explicitly requested.
+8. For Node.js run_command tasks, package.json must consistently use either ES modules
+   ("type": "module" + import/export) or CommonJS (require/module.exports) — never both.
 
-## Output Format (strict JSON)
-{
-  "project_name": "string",
-  "project_description": "string",
-  "tech_stack": ["list", "of", "technologies"],
-  "total_tasks": number,
-  "tasks": [
-    {
-      "id": 1,
-      "type": "create_folder",
-      "title": "Create src directory",
-      "description": "Create the main source directory structure",
-      "agent": "filesystem",
-      "file_path": "src/",
-      "command": null,
-      "content": null
-    }
-  ]
-}
+## Required workflow
+1. Draft a full ProjectPlan covering every file a real developer would need: main files,
+   config files, package.json/requirements.txt, .env.example, README, .gitignore, and the
+   .vscode files.
+2. Your final answer must be a valid JSON matching the ProjectPlan schema.
 """
 
 
 class PlannerAgent:
     """
-    Breaks down a user project request into structured, executable tasks.
-    Powered by Groq Llama 3.3 70B via CAMEL AI.
+    Breaks down a user project request into a structured, validated task plan.
+
+    Structural correctness comes from two places, not a regex-repair fallback:
+    - `response_format=ProjectPlan` forces the model's final answer into the schema.
+    - The `validate_plan` tool lets the agent check its own draft against the
+      planner's hard rules (banned commands, missing required files, mixed
+      JS/TS, duplicate ids/paths) and revise before finalizing.
     """
 
-    def __init__(self, provider: str = None):
-        """Initialize the planner agent with an optional provider fallback."""
-        model = get_model_by_provider(provider) if provider else planner_model()
+    # Fallback ladder tried in order; each entry is (provider, model_name).
+    FALLBACK_MODELS = [
+        ("gemini", "gemini-3.8-flash"),
+        ("groq", "llama-3.3-70b-versatile"),
+    ]
 
-        # We use a custom ChatAgent setup because the default JSON parser was
-        # returning JSON when it received very large prompts.
+    def __init__(self, provider: str | None = None):
+        self.provider = provider
+        model = get_model_by_provider(provider) if provider else planner_model()
         self._agent = ChatAgent(
             system_message=PLANNER_SYSTEM_MESSAGE,
             model=model,
         )
-        logger.info(
-            f"PlannerAgent initialized (Provider: {provider or 'default groq'})"
-        )
+        logger.info(f"PlannerAgent initialized (provider={provider or 'default'})")
+
+    # ------------------------------------------------------------------
+    # Tool exposed to the agent for self-critique
+    # ------------------------------------------------------------------
+
+    def validate_plan(self, plan_json: str) -> str:
+        """Validate a draft ProjectPlan JSON against TITAN's structural rules.
+
+        Checks for: duplicate task ids, duplicate file_paths, missing
+        .vscode/tasks.json or .vscode/launch.json, mixed .ts/.js files,
+        and run_command tasks that would start a persistent server.
+
+        Args:
+            plan_json: The draft plan, serialized as a JSON string matching
+                the ProjectPlan schema (project_name, project_description,
+                tech_stack, total_tasks, tasks).
+
+        Returns:
+            JSON string: {"valid": bool, "issues": [{"task_id": int|null, "issue": str}]}
+        """
+        try:
+            data = json.loads(plan_json)
+        except Exception as exc:
+            return ValidationResult(
+                valid=False, issues=[ValidationIssue(issue=f"Invalid JSON: {exc}")]
+            ).model_dump_json()
+
+        issues: list[ValidationIssue] = []
+        tasks = data.get("tasks", [])
+        seen_ids: set[Any] = set()
+        seen_paths: set[str] = set()
+        has_vscode_tasks = False
+        has_vscode_launch = False
+        extensions_used: set[str] = set()
+
+        for t in tasks:
+            tid = t.get("id")
+            if tid in seen_ids:
+                issues.append(ValidationIssue(task_id=tid, issue="Duplicate task id"))
+            seen_ids.add(tid)
+
+            fp = t.get("file_path")
+            if fp:
+                if fp in seen_paths:
+                    issues.append(ValidationIssue(task_id=tid, issue=f"Duplicate file_path: {fp}"))
+                seen_paths.add(fp)
+                if fp == ".vscode/tasks.json":
+                    has_vscode_tasks = True
+                if fp == ".vscode/launch.json":
+                    has_vscode_launch = True
+                if fp.endswith((".ts", ".tsx")):
+                    extensions_used.add("ts")
+                if fp.endswith((".js", ".jsx")):
+                    extensions_used.add("js")
+
+            if t.get("type") == "run_command":
+                cmd = (t.get("command") or "").lower()
+                for banned in _BANNED_COMMAND_FRAGMENTS:
+                    if banned in cmd:
+                        issues.append(
+                            ValidationIssue(
+                                task_id=tid,
+                                issue=f"Forbidden persistent-server command '{banned}' (rule 4)",
+                            )
+                        )
+
+        if not has_vscode_tasks:
+            issues.append(ValidationIssue(issue="Missing .vscode/tasks.json (required by rule 6)"))
+        if not has_vscode_launch:
+            issues.append(ValidationIssue(issue="Missing .vscode/launch.json (required by rule 6)"))
+        if {"ts", "js"} <= extensions_used:
+            issues.append(
+                ValidationIssue(issue="Mixed .ts and .js files in the same plan — pick one (rule 7)")
+            )
+
+        return ValidationResult(valid=not issues, issues=issues).model_dump_json()
+
+    # ------------------------------------------------------------------
+    # Public entrypoint
+    # ------------------------------------------------------------------
 
     def plan(self, user_request: str, extra_context: str = "") -> dict[str, Any]:
         """
-        Takes a natural language project request and returns a structured plan.
-
-        Args:
-            user_request: e.g. "Build me a Spotify Clone using React and FastAPI"
-            extra_context: Optional extra info (target OS, preferences, etc.)
-
-        Returns:
-            dict with keys: project_name, tech_stack, tasks, etc.
+        Takes a natural language project request and returns a structured,
+        schema-validated plan as a dict (matching ProjectPlan).
         """
-        # Truncate very long prompts to avoid hitting context limits
-        # Keep first 4000 chars which has enough info for the planner
         truncated = user_request[:4000]
         if len(user_request) > 4000:
             truncated += "\n\n[...prompt truncated for planning — full details will be passed to agents per-task...]"
@@ -98,179 +229,70 @@ User Request: {truncated}
 
 {f"Additional Context: {extra_context}" if extra_context else ""}
 
-Generate a complete, ordered task plan as strict JSON.
-Include ALL files needed: main files, config files, package.json/requirements.txt, .env.example, README, .gitignore.
-Be thorough — a real developer would not miss any file.
-Return ONLY the JSON object. No explanation, no markdown fences.
+Produce a complete, ordered ProjectPlan. Include ALL files a real developer would need:
+main files, config files, package.json/requirements.txt, .env.example, README, .gitignore,
+and the required .vscode files. Validate your draft with validate_plan before answering.
 """
         logger.info(f"Planning project: {user_request[:120]}...")
 
-        # ── Planner-specific fallback: only use Groq (best JSON) ────────────
-        # Mistral and Gemini sometimes return malformed JSON — Groq is the best
-        # structured output model. We rotate across Groq models only if rate limited.
-        groq_models = ["llama-3.3-70b-versatile", "llama3-8b-8192", "gemma2-9b-it"]
         from backend.ai.model_factory import get_gemini_model, get_groq_model
 
-        fallback_models = [
-            get_groq_model("llama-3.3-70b-versatile"),
-            get_gemini_model("gemini-2.0-flash"),
-            get_groq_model("llama3-8b-8192"),
-        ]
-
-        plan = {}
-        for i, model in enumerate(fallback_models):
+        last_error: Exception | None = None
+        for provider_name, model_name in self.FALLBACK_MODELS:
             try:
-                # Create a fresh agent for each fallback to avoid mutating internals
+                model = (
+                    get_groq_model(model_name)
+                    if provider_name == "groq"
+                    else get_gemini_model(model_name)
+                )
                 self._agent = ChatAgent(
                     system_message=PLANNER_SYSTEM_MESSAGE,
                     model=model,
                 )
-                response = self._agent.step(prompt)
-                raw = response.msgs[0].content.strip()
-                plan = self._extract_json(raw)
-                if plan.get("tasks"):  # Got a valid plan with tasks
-                    break
-                else:
-                    logger.warning(
-                        f"Planner got empty tasks from model {i + 1}, trying next..."
-                    )
+                
+                current_prompt = prompt
+                for _ in range(3):
+                    response = self._agent.step(current_prompt, response_format=ProjectPlan)
+
+                    parsed: ProjectPlan | None = getattr(response.msgs[0], "parsed", None)
+                    if parsed is None:
+                        parsed = ProjectPlan.model_validate_json(response.msgs[0].content)
+
+                    # Validate locally
+                    val_result_str = self.validate_plan(parsed.model_dump_json())
+                    val_result = ValidationResult.model_validate_json(val_result_str)
+                    
+                    if val_result.valid:
+                        if parsed.tasks:
+                            logger.success(
+                                f"Plan created via {provider_name}:{model_name} — "
+                                f"{parsed.project_name}, {len(parsed.tasks)} tasks"
+                            )
+                            return parsed.model_dump()
+                        break
+                    
+                    # If invalid, prompt again with issues
+                    current_prompt = "Your previous plan had the following issues:\n" + "\n".join([f"- {i.issue}" for i in val_result.issues]) + "\n\nPlease fix them and return the corrected plan."
+
+                logger.warning(f"{provider_name}:{model_name} returned zero tasks or failed validation, trying next model")
+
             except Exception as exc:
+                last_error = exc
                 err = str(exc).lower()
-                if (
-                    "429" in err
-                    or "rate_limit" in err
-                    or "quota" in err
-                    or "resource_exhausted" in err
-                ):
-                    logger.warning(
-                        f"Planner rate limited on model {i + 1}, trying next..."
-                    )
-                    continue
+                if any(s in err for s in ("429", "rate_limit", "quota", "resource_exhausted")):
+                    logger.warning(f"Rate limited on {provider_name}:{model_name}, trying next...")
                 else:
-                    raise
-
-        task_count = len(plan.get("tasks", []))
-        logger.success(f"Plan created: {plan.get('project_name')} — {task_count} tasks")
-        return plan
-
-    def _extract_json(self, text: str) -> dict:
-        """Robustly extract JSON from model response, including truncated responses."""
-        # Step 1: Clean up code fences
-        cleaned = text.strip()
-        # Remove ```json / ``` wrappers
-        match = re.search(r"```(?:json)?\s*([\s\S]+?)```", cleaned)
-        if match:
-            cleaned = match.group(1).strip()
-        else:
-            # Extract between first { and last }
-            start = cleaned.find("{")
-            if start != -1:
-                cleaned = cleaned[start:]
-
-        # Step 2: Try direct parse (fully valid JSON)
-        try:
-            result = json.loads(cleaned)
-            if result.get("tasks"):
-                return result
-        except json.JSONDecodeError:
-            pass
-
-        # Step 3: Try to fix truncated JSON by closing open brackets
-        try:
-            fixed = self._repair_truncated_json(cleaned)
-            result = json.loads(fixed)
-            if result.get("tasks"):
-                logger.warning(
-                    f"Used truncated-JSON repair — recovered {len(result['tasks'])} tasks"
-                )
-                return result
-        except Exception:
-            pass
-
-        # Step 4: Response was cut off BEFORE tasks array even started
-        # Complete the partial JSON by appending the tasks field and closing
-        try:
-            # Find the partial object (has project_name but no tasks)
-            partial = cleaned.rstrip().rstrip(",")
-            # Ensure it ends at a proper boundary
-            if partial.endswith('"') or partial[-1].isalnum() or partial[-1] in "]}":
-                completed = partial + ', "tasks": [], "total_tasks": 0}'
-                result = json.loads(completed)
-                if (
-                    result.get("project_name")
-                    and result["project_name"] != "unnamed-project"
-                ):
-                    logger.warning(
-                        "JSON was truncated before tasks — will re-plan with next model"
-                    )
-                    # Return empty tasks so the caller retries with next model
-                    return result
-        except Exception:
-            pass
-
-        logger.error(
-            f"Failed to parse planner JSON response. Raw (first 500 chars): {text[:500]}"
-        )
-        return {
-            "project_name": "unnamed-project",
-            "project_description": "Generated project",
-            "tech_stack": ["Python"],
-            "total_tasks": 0,
-            "tasks": [],
-        }
-
-    def _repair_truncated_json(self, text: str) -> str:
-        """
-        Attempt to repair a truncated JSON string by:
-        1. Finding the last complete task object.
-        2. Closing all open arrays/objects.
-        """
-        # Find last complete task object (ends with })
-        # Walk backwards to find last complete closing brace for a task
-        last_valid_task_end = -1
-        depth = 0
-        in_string = False
-        escape_next = False
-
-        for i, ch in enumerate(text):
-            if escape_next:
-                escape_next = False
+                    logger.warning(f"{provider_name}:{model_name} failed: {exc}")
                 continue
-            if ch == "\\" and in_string:
-                escape_next = True
-                continue
-            if ch == '"' and not escape_next:
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 1:  # Closed a task-level object, still inside tasks array
-                    last_valid_task_end = i
 
-        if last_valid_task_end == -1:
-            return text  # Can't repair
-
-        # Truncate to last valid task and close the structure
-        truncated = text[: last_valid_task_end + 1]
-        # Ensure the outer structure is closed
-        # Count unclosed brackets in what we have
-        open_brackets = truncated.count("[") - truncated.count("]")
-        open_braces = truncated.count("{") - truncated.count("}")
-
-        closing = ""
-        # Close tasks array
-        if open_brackets > 0:
-            closing += "]" * open_brackets
-        # Close root object
-        if open_braces > 0:
-            closing += "}" * open_braces
-
-        repaired = truncated + closing
-        return repaired
+        logger.error(f"All planner models failed to produce a plan. Last error: {last_error}")
+        return ProjectPlan(
+            project_name="unnamed-project",
+            project_description="Generated project",
+            tech_stack=["Python"],
+            total_tasks=0,
+            tasks=[],
+        ).model_dump()
 
     def reset(self):
         self._agent.reset()

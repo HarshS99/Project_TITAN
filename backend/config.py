@@ -42,7 +42,7 @@ AGENT_MODELS = {
     },
     "testing": {
         "provider": "gemini",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-3.8-flash",
         "temperature": 0.0,
         "description": "Runs tests and fixes errors",
     },
