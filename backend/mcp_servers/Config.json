@@ -1,7 +1,7 @@
 {
     "mcpServers": {
         "github": {
-            "command": "python3",
+            "command": "/Users/harshsingh/Desktop/Project_TITAN/venv/bin/python",
             "args": [
                 "/Users/harshsingh/Desktop/Project_TITAN/backend/mcp_servers/github_mcp_server.py"
             ],

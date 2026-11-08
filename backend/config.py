@@ -24,31 +24,31 @@ GITHUB_USERNAME: str = os.getenv("GITHUB_USERNAME", "")
 
 # ── Model Configuration ───────────────────────────────────────
 DEFAULT_AI_PROVIDER: str = os.getenv("DEFAULT_AI_PROVIDER", "groq")
-DEFAULT_GROQ_MODEL: str = os.getenv("DEFAULT_GROQ_MODEL", "llama-3.3-70b-versatile")
+DEFAULT_GROQ_MODEL: str = os.getenv("DEFAULT_GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Agent → model mapping (must stay in sync with orchestrator._init_agents())
 AGENT_MODELS = {
     "planner": {
         "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "temperature": 0.2,
         "description": "Plans projects into ordered task lists",
     },
     "code": {
         "provider": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
         "temperature": 0.1,
         "description": "Writes production-quality code",
     },
     "testing": {
         "provider": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": "gemini-2.5-flash",
         "temperature": 0.0,
         "description": "Runs tests and fixes errors",
     },
     "docs": {
-        "provider": "mistral",
-        "model": "mistral-small-latest",
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
         "temperature": 0.3,
         "description": "Generates README, docs, and GitHub files",
     },

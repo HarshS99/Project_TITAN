@@ -22,7 +22,7 @@ AGENT_SYSTEM_MESSAGE = """You are TITAN's Documentation Engineer, an autonomous 
 responsible for producing professional documentation for a software project.
 
 You have tools to explore the project (list_directory, read_file, get_git_remote_info) \
-and tools to write files (write_to_file, from your file-writing toolkit). You are NOT \
+and tools to write files (write_file). You are NOT \
 given the project's name, tech stack, or description up front — you must discover all \
 of it yourself using your tools.
 
@@ -88,7 +88,7 @@ class DocsAgent:
             FunctionTool(self.list_directory),
             FunctionTool(self.read_file),
             FunctionTool(self.get_git_remote_info),
-            *FileToolkit(working_directory=str(self.project_path)).get_tools(),
+            FunctionTool(self.write_file),
         ]
 
         self._agent = ChatAgent(
@@ -153,7 +153,7 @@ class DocsAgent:
         except Exception as exc:
             return f"ERROR reading file: {exc}"
 
-    def get_git_remote_info(self) -> str:
+    def get_git_remote_info(self, dummy: str = "") -> str:
         """Get GitHub username/repo and inferred project name from git config.
 
         Returns:
@@ -187,6 +187,27 @@ class DocsAgent:
         except Exception as exc:
             info["error"] = str(exc)
         return json.dumps(info)
+
+    def write_file(self, relative_path: str, content: str) -> str:
+        """Write content to a file inside the project.
+
+        Args:
+            relative_path: Path relative to the project root.
+            content: The text content to write.
+
+        Returns:
+            A success message or error string.
+        """
+        try:
+            path = _safe_path(self.project_path, relative_path)
+        except ValueError as exc:
+            return f"ERROR: {exc}"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            return f"SUCCESS: Wrote to {relative_path}"
+        except Exception as exc:
+            return f"ERROR writing file: {exc}"
 
     # ------------------------------------------------------------------
     # Public entrypoint

@@ -43,9 +43,9 @@ Return ONLY the file content. No explanation. No markdown. Just the raw code.
 # Fallback ladder: tried in order when the primary model fails.
 # Each entry is (provider, model_name).
 FALLBACK_MODELS = [
-    ("gemini", "gemini-3.8-flash"),
-    ("groq",   "llama3-70b-8192"),
-    ("groq",   "llama-3.1-8b-instant"),
+    ("gemini", "gemini-2.5-flash"),
+    ("groq",   "openai/gpt-oss-120b"),
+    ("groq",   "qwen/qwen3.8-27b"),
 ]
 
 
@@ -95,6 +95,8 @@ class CodeAgent:
         self._agent.reset()
         try:
             response = self._agent.step(prompt)
+            if not response.msgs:
+                return ""
             return response.msgs[0].content.strip()
         except Exception as primary_err:
             logger.warning(f"CodeAgent primary model failed: {primary_err}")
@@ -104,6 +106,8 @@ class CodeAgent:
                 logger.info(f"CodeAgent trying fallback: {provider}:{model_name}")
                 fallback_agent = _make_agent(provider, model_name)
                 response = fallback_agent.step(prompt)
+                if not response.msgs:
+                    return ""
                 return response.msgs[0].content.strip()
             except Exception as err:
                 logger.warning(f"CodeAgent fallback {provider}:{model_name} failed: {err}")

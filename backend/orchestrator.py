@@ -103,36 +103,38 @@ class Orchestrator:
                         func_name = func.__name__
 
                         if isinstance(agent_instance, PlannerAgent):
-                            providers = ["gemini", "groq", "gemini"]
-                            next_provider = providers[(attempt + 1) % 3]
+                            providers = ["gemini", "groq"]
+                            next_provider = providers[(attempt + 1) % len(providers)]
                             logger.warning(
                                 f"PlannerAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
                             )
                             self._planner = PlannerAgent(provider=next_provider)
                             func = getattr(self._planner, func_name)
                         elif isinstance(agent_instance, CodeAgent):
-                            providers = ["gemini", "groq", "gemini"]
-                            next_provider = providers[(attempt + 1) % 3]
+                            providers = ["gemini", "groq"]
+                            next_provider = providers[(attempt + 1) % len(providers)]
                             logger.warning(
                                 f"CodeAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
                             )
                             self._coder = CodeAgent(provider=next_provider)
                             func = getattr(self._coder, func_name)
                         elif isinstance(agent_instance, DocsAgent):
-                            providers = ["gemini", "groq", "gemini"]
-                            next_provider = providers[(attempt + 1) % 3]
+                            providers = ["gemini", "groq"]
+                            next_provider = providers[(attempt + 1) % len(providers)]
                             logger.warning(
                                 f"DocsAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
                             )
-                            self._docs = DocsAgent(provider=next_provider)
+                            proj_path = str(getattr(agent_instance, "project_path", "."))
+                            self._docs = DocsAgent(project_path=proj_path, provider=next_provider)
                             func = getattr(self._docs, func_name)
                         elif isinstance(agent_instance, TestingAgent):
-                            providers = ["gemini", "groq", "gemini"]
-                            next_provider = providers[(attempt + 1) % 3]
+                            providers = ["gemini", "groq"]
+                            next_provider = providers[(attempt + 1) % len(providers)]
                             logger.warning(
                                 f"TestingAgent rate limited. Fallback to {next_provider} (attempt {attempt + 2}/6)..."
                             )
-                            self._tester = TestingAgent(provider=next_provider)
+                            proj_path = str(getattr(agent_instance, "project_path", "."))
+                            self._tester = TestingAgent(project_path=proj_path, provider=next_provider)
                             func = getattr(self._tester, func_name)
                 else:
                     raise  # Non-rate-limit error, bubble up immediately
@@ -233,6 +235,7 @@ class Orchestrator:
         terminal = TerminalController(fs.root)
         github = GitHubController(fs.root)
         vscode = VSCodeController(fs.root)
+        self._tester = TestingAgent(project_path=str(fs.root), provider="gemini")
 
         # Save project to DB
         project_id = self.memory.create_project(
@@ -323,27 +326,13 @@ class Orchestrator:
 
                 # ── README generation ─────────────────────────
                 elif task_type == "generate_readme":
-                    readme = self._call_with_retry(
-                        self._docs.generate_readme,
-                        project_name=project_name,
-                        description=description,
-                        tech_stack=tech_stack,
-                        features=self._extract_features(tasks),
-                        github_username=github.username,
-                        repo_name=project_name,
-                    )
-                    fs.write_file("README.md", readme)
-                    files_created.append("README.md")
-                    self.memory.update_task_status(record_id, TaskStatus.DONE)
+                    # Handled in Phase 4
+                    self.memory.update_task_status(record_id, TaskStatus.SKIPPED)
 
                 # ── .gitignore generation ─────────────────────
                 elif task_type == "generate_gitignore":
-                    gitignore = self._call_with_retry(
-                        self._docs.generate_gitignore, tech_stack
-                    )
-                    fs.write_file(".gitignore", gitignore)
-                    files_created.append(".gitignore")
-                    self.memory.update_task_status(record_id, TaskStatus.DONE)
+                    # Handled in Phase 4
+                    self.memory.update_task_status(record_id, TaskStatus.SKIPPED)
 
                 # ── Git push ──────────────────────────────────
                 elif task_type == "git_push" and auto_push:

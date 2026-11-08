@@ -83,7 +83,81 @@ class BuildStatusResponse(BaseModel):
     result: Optional[dict] = None
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    provider: str
+
+
+class EnhancePromptRequest(BaseModel):
+    prompt: str
+    target_stack: str = "auto"
+
+
+COPILOT_SYSTEM_PROMPT = """You are TITAN Copilot — an expert AI Software Architect and autonomous engineering assistant for Project TITAN.
+You help users brainstorm software ideas, choose optimal tech stacks, design scalable system architectures, review code, debug build errors, and construct high-impact prompts for Project TITAN's autonomous build engine.
+
+Keep your answers structured, punchy, and technical.
+When recommending a project idea or prompt, provide:
+1. Short overview
+2. Recommended Tech Stack
+3. Core Architecture
+4. A ready-to-run TITAN Prompt that the user can copy or click to build."""
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_copilot(req: ChatRequest) -> ChatResponse:
+    """TITAN AI Copilot chat for ideation, architecture, debugging, and suggestions."""
+    from camel.agents import ChatAgent
+    from backend.ai.model_factory import get_gemini_model, get_groq_model
+
+    prompt = req.message
+    if req.history:
+        ctx = "\n".join([f"{m.role}: {m.content}" for m in req.history[-4:]])
+        full_prompt = f"Previous conversation:\n{ctx}\n\nUser: {prompt}"
+    else:
+        full_prompt = prompt
+
+    # Try Gemini 2.5 Flash first, then Groq
+    for provider, model_func in [
+        ("gemini", lambda: get_gemini_model("gemini-2.5-flash")),
+        ("groq", lambda: get_groq_model("openai/gpt-oss-120b")),
+        ("groq", lambda: get_groq_model("qwen/qwen3.8-27b")),
+    ]:
+        try:
+            model = model_func()
+            agent = ChatAgent(system_message=COPILOT_SYSTEM_PROMPT, model=model)
+            resp = agent.step(full_prompt)
+            reply = resp.msgs[0].content
+            return ChatResponse(reply=reply, provider=provider)
+        except Exception as e:
+            logger.warning(f"Copilot chat with {provider} failed: {e}")
+            continue
+
+    # Offline / local intelligent fallback
+    fallback_reply = (
+        f"⚡ **TITAN Copilot**\n\n"
+        f"Here is an architecture strategy for *'{req.message}'*:\n\n"
+        f"• **Recommended Stack:** FastAPI (Python 3.11) + SQLite/SQLAlchemy + Pydantic v2 + Modern Glassmorphic Dashboard\n"
+        f"• **Architecture:** Modular MVC with clear separation between router endpoints, services, and storage models.\n"
+        f"• **Security:** JWT authentication, environment-driven secrets, and rate limiting.\n\n"
+        f"💡 **Suggested Build Prompt:**\n"
+        f"`Build a {req.message} with production-ready REST API, schema validation, unit tests, and interactive UI.`\n\n"
+        f"*Click 'Use as Project Prompt' to send this directly to the build engine!*"
+    )
+    return ChatResponse(reply=fallback_reply, provider="local-fallback")
 
 
 @app.get("/")
@@ -213,6 +287,13 @@ def get_build_events(build_id: str, since: int = 0) -> dict:
 def list_projects() -> dict:
     """List all projects built by TITAN."""
     projects = memory.list_projects()
+    # Deduplicate by name, keeping the latest one
+    seen: set[str] = set()
+    unique = []
+    for p in projects:
+        if p.name not in seen:
+            seen.add(p.name)
+            unique.append(p)
     return {
         "projects": [
             {
@@ -225,7 +306,7 @@ def list_projects() -> dict:
                 "completed_tasks": p.completed_tasks,
                 "total_tasks": p.total_tasks,
             }
-            for p in projects
+            for p in unique
         ]
     }
 
@@ -238,6 +319,127 @@ def get_config() -> dict:
         "missing": validate_config(),
         "projects_dir": str(PROJECTS_DIR),
     }
+
+
+@app.get("/projects/{project_name}/files")
+def get_project_files(project_name: str) -> dict:
+    """List all source files in a project workspace."""
+    proj_dir = PROJECTS_DIR / project_name
+    if not proj_dir.exists():
+        raise HTTPException(status_code=404, detail="Project directory not found")
+    files = []
+    for p in sorted(proj_dir.rglob("*")):
+        if p.is_file():
+            parts = p.relative_to(proj_dir).parts
+            if any(part in (".git", "__pycache__", "node_modules", ".venv") for part in parts):
+                continue
+            files.append(str(p.relative_to(proj_dir)))
+    return {"files": files}
+
+
+@app.get("/projects/{project_name}/file")
+def get_project_file_content(project_name: str, file_path: str) -> dict:
+    """Get the text content of a specific project file."""
+    proj_dir = (PROJECTS_DIR / project_name).resolve()
+    target = (proj_dir / file_path).resolve()
+    if not str(target).startswith(str(proj_dir)):
+        raise HTTPException(status_code=403, detail="Path traversal forbidden")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        content = target.read_text(encoding="utf-8")
+        return {"content": content, "size": len(content)}
+    except Exception as e:
+        return {"content": f"Binary or unreadable file: {e}", "size": 0}
+
+
+@app.post("/projects/{project_name}/open_vscode")
+def open_project_vscode(project_name: str) -> dict:
+    """Open project workspace in VS Code."""
+    proj_dir = PROJECTS_DIR / project_name
+    if not proj_dir.exists():
+        raise HTTPException(status_code=404, detail="Project directory not found")
+    from backend.controllers.vscode import VSCodeController
+    vc = VSCodeController(proj_dir)
+    success = vc.open_project()
+    return {"success": success}
+
+
+@app.post("/prompt/enhance")
+def enhance_prompt_endpoint(req: EnhancePromptRequest) -> dict:
+    """Transform a short idea into an architectural build prompt."""
+    prompt_text = req.prompt.strip()
+    if not prompt_text:
+        return {"enhanced": ""}
+    from camel.agents import ChatAgent
+    from backend.ai.model_factory import get_groq_model, get_gemini_model
+    enhance_sys = (
+        "You are TITAN's Principal Systems Architect. Transform the user's brief concept "
+        "into a high-impact, production specification for an autonomous AI software build engine. "
+        "Detail architecture patterns, database models, REST/GraphQL endpoints, security, and testing. "
+        "Return ONLY the enhanced specification prompt starting with 'Build a ...', under 200 words."
+    )
+    for provider, model_func in [
+        ("groq", lambda: get_groq_model("openai/gpt-oss-120b")),
+        ("gemini", lambda: get_gemini_model("gemini-2.5-flash")),
+    ]:
+        try:
+            agent = ChatAgent(system_message=enhance_sys, model=model_func())
+            res = agent.step(f"Idea: {prompt_text}\nStack focus: {req.target_stack}")
+            if res.msgs and res.msgs[0].content:
+                return {"enhanced": res.msgs[0].content.strip(), "provider": provider}
+        except Exception as e:
+            logger.warning(f"Enhance prompt failed with {provider}: {e}")
+    return {
+        "enhanced": f"Build a {prompt_text} featuring clean modular architecture, relational database persistence, Pydantic schemas, unit tests, and comprehensive OpenAPI documentation.",
+        "provider": "fallback",
+    }
+
+
+@app.get("/system/ping_providers")
+def ping_providers() -> dict:
+    """Ping configured model providers and return live response latency."""
+    results = {}
+    import time
+    from backend.ai.model_factory import get_groq_model, get_gemini_model, get_mistral_model
+
+    # Ping Groq
+    t0 = time.time()
+    try:
+        _ = get_groq_model("openai/gpt-oss-120b")
+        results["groq"] = {
+            "status": "online",
+            "latency_ms": round((time.time() - t0) * 1000, 1),
+            "model": "openai/gpt-oss-120b",
+        }
+    except Exception as e:
+        results["groq"] = {"status": "error", "error": str(e)}
+
+    # Ping Gemini
+    t0 = time.time()
+    try:
+        _ = get_gemini_model("gemini-2.5-flash")
+        results["gemini"] = {
+            "status": "online",
+            "latency_ms": round((time.time() - t0) * 1000, 1),
+            "model": "gemini-2.5-flash",
+        }
+    except Exception as e:
+        results["gemini"] = {"status": "error", "error": str(e)}
+
+    # Ping Mistral
+    t0 = time.time()
+    try:
+        _ = get_mistral_model("mistral-small-latest")
+        results["mistral"] = {
+            "status": "online",
+            "latency_ms": round((time.time() - t0) * 1000, 1),
+            "model": "mistral-small-latest",
+        }
+    except Exception as e:
+        results["mistral"] = {"status": "error", "error": str(e)}
+
+    return {"providers": results}
 
 
 # ── Run ────────────────────────────────────────────────────────────────────

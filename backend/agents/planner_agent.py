@@ -122,8 +122,8 @@ class PlannerAgent:
 
     # Fallback ladder tried in order; each entry is (provider, model_name).
     FALLBACK_MODELS = [
-        ("gemini", "gemini-3.8-flash"),
-        ("groq", "llama-3.3-70b-versatile"),
+        ("gemini", "gemini-2.5-flash"),
+        ("groq", "openai/gpt-oss-120b"),
     ]
 
     def __init__(self, provider: str | None = None):

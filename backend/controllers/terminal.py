@@ -61,15 +61,35 @@ class TerminalController:
             CommandResult with stdout, stderr, returncode
         """
         import os
+        import re
+        import shutil
+        import sys
 
         full_env = os.environ.copy()
         if env:
             full_env.update(env)
 
-        logger.info(f"🖥️  Running: {command}")
+        # Ensure standard paths and Python environment bin are on PATH
+        current_path = full_env.get("PATH", "")
+        py_bin_dir = str(Path(sys.executable).parent)
+        for p in [py_bin_dir, "/opt/homebrew/bin", "/usr/local/bin"]:
+            if p not in current_path.split(":"):
+                current_path = f"{p}:{current_path}"
+        full_env["PATH"] = current_path
+
+        # If 'python' or 'pip' command is called but not available, alias to python3/current venv
+        cmd_to_run = command
+        if not shutil.which("python", path=full_env["PATH"]):
+            py_bin = shutil.which("python3", path=full_env["PATH"]) or sys.executable
+            cmd_to_run = re.sub(r'(^|[;&|]\s*)python(\s+|$)', rf'\1{py_bin}\2', cmd_to_run)
+        if not shutil.which("pip", path=full_env["PATH"]):
+            pip_bin = shutil.which("pip3", path=full_env["PATH"]) or f"{sys.executable} -m pip"
+            cmd_to_run = re.sub(r'(^|[;&|]\s*)pip(\s+|$)', rf'\1{pip_bin}\2', cmd_to_run)
+
+        logger.info(f"🖥️  Running: {cmd_to_run}")
         try:
             result = subprocess.run(
-                command,
+                cmd_to_run,
                 shell=True,
                 cwd=self.project_root,
                 capture_output=True,

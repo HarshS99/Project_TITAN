@@ -106,7 +106,7 @@ class TITANGithubToolkit(BaseToolkit):
                 # Repo has commits — check if there's anything new
                 if not repo.index.diff("HEAD") and not repo.untracked_files:
                     return "Success: Nothing to commit (already committed)"
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 pass  # No HEAD yet — this is a fresh repo; proceed to commit
 
             repo.index.commit(commit_message)

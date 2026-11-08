@@ -12,7 +12,7 @@ from camel.types import ModelPlatformType
 from backend.config import GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY
 
 
-def get_groq_model(model: str = "llama-3.3-70b-versatile"):
+def get_groq_model(model: str = "openai/gpt-oss-120b"):
     """Groq hosted models — fast inference for planning and code tasks."""
     return ModelFactory.create(
         ModelPlatformType.GROQ,
@@ -23,7 +23,7 @@ def get_groq_model(model: str = "llama-3.3-70b-versatile"):
     )
 
 
-def get_gemini_model(model: str = "gemini-3.8-flash"):
+def get_gemini_model(model: str = "gemini-2.5-flash"):
     """Google Gemini — best for long file code generation."""
     return ModelFactory.create(
         ModelPlatformType.GEMINI,
@@ -51,23 +51,23 @@ def get_mistral_model(model: str = "mistral-small-latest"):
 
 
 def planner_model():
-    """Gemini 2.0 Flash — fast structured JSON output for planning."""
-    return get_gemini_model("gemini-3.8-flash")
+    """Gemini 2.5 Flash — fast structured JSON output for planning."""
+    return get_gemini_model("gemini-2.5-flash")
 
 
 def code_model():
-    """Gemini 2.0 Flash — large context, excellent for code generation."""
-    return get_gemini_model("gemini-3.8-flash")
+    """Gemini 2.5 Flash — large context, excellent for code generation."""
+    return get_gemini_model("gemini-2.5-flash")
 
 
 def testing_model():
-    """Gemini 2.0 Flash — fast error analysis and diagnosis."""
-    return get_gemini_model("gemini-3.8-flash")
+    """Gemini 2.5 Flash — fast error analysis and diagnosis."""
+    return get_gemini_model("gemini-2.5-flash")
 
 
 def docs_model():
-    """Gemini 2.0 Flash — excellent writing quality for documentation and READMEs."""
-    return get_gemini_model("gemini-3.8-flash")
+    """Gemini 2.5 Flash — excellent writing quality for documentation and READMEs."""
+    return get_gemini_model("gemini-2.5-flash")
 
 
 def get_model_by_provider(provider: str):

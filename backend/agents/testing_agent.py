@@ -234,7 +234,13 @@ class TestingAgent:
     # Public entrypoint
     # ------------------------------------------------------------------
 
-    def diagnose(self, terminal_output: str, project_context: str = "") -> DiagnosisResult:
+    def diagnose(
+        self,
+        terminal_output: str,
+        project_context: str = "",
+        file_contents: dict[str, str] | None = None,
+        **kwargs,
+    ) -> DiagnosisResult:
         """
         Analyze terminal output and diagnose the root cause of any error.
         The agent reads real files and checks real manifests via its tools

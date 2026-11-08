@@ -151,7 +151,7 @@ def _get_llm():
     if gemini_key:
         try:
             return ChatGoogleGenerativeAI(
-                model="gemini-3.8-flash",
+                model="gemini-2.5-flash",
                 google_api_key=gemini_key,
                 temperature=0,
             )
@@ -160,7 +160,7 @@ def _get_llm():
     # Fallback: Groq
     key = os.environ.get("GROQ_API_KEY", GROQ_API_KEY)
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         api_key=key,
         temperature=0,
     )
