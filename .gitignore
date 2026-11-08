@@ -48,7 +48,7 @@ backend/mcp_servers/Config.json
 backend/mcp_servers/github-mcp-server
 
 # Streamlit
-.streamlit/
+.streamlit/credentials.toml
 
 # Testing
 .pytest_cache/
