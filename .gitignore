@@ -54,3 +54,6 @@ backend/mcp_servers/github-mcp-server
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local Agent Workspace
+.agents/
